@@ -1,0 +1,21 @@
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      cluster-name:
+        required: false
+        type: sting
+
+jobs:
+  deploy:
+    name: Display inputs
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Display Environment
+        run: echo "Environment is ${{ inputs.environment }}."
+
+      - name: Display Cluster
+        run: echo "Cluster is ${{ inputs.cluster-name }}."
