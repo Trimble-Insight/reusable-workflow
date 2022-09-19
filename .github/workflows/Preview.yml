@@ -37,11 +37,12 @@ jobs:
       - name: Show build version
         run: echo "Build version ${{ needs.set_versioning.outputs.version_build }}"
       - name: Deploy
-        uses: ./.github/workflows/Deploy.yml
-        with:
-          environment: preview
-          cluster-name: preview-cluster
-          version-build: ${{ needs.set_versioning.outputs.version_build }}
+        call-workflow-passing-data:
+          uses: ./.github/workflows/Deploy.yml
+          with:
+            environment: preview
+            cluster-name: preview-cluster
+            version-build: ${{ needs.set_versioning.outputs.version_build }}
   
   concurrent-job:
     runs-on: ubuntu-latest
