@@ -1,23 +1,17 @@
+# name: Call a reusable workflow
+
 # on:
 #   pull_request:
 #     branches: [release/preview]
 #     types: [opened, synchronize]
 
 # jobs:
-#   deploy:
-#     name: Deploy to Preview
-#     runs-on: ubuntu-latest
-#     environment: preview
 
-#     steps:
-#       - name: Checkout
-#         uses: actions/checkout@v2
-
-#       call-workflow-passing-data:
-#         uses: ./.github/workflows/Deploy.yml
-#         with:
-#           environment: preview
-#           cluster-name: preview-cluster
+#   call-workflow-passing-data:
+#     uses: ./.github/workflows/Deploy.yml
+#     with:
+#       environment: preview
+#       cluster-name: preview-cluster
 
 name: Call a reusable workflow
 
@@ -28,7 +22,8 @@ on:
 
 jobs:
 
-  call-workflow-passing-data:
+  steps:
+  - name: Call Workflow Passing Data
     uses: ./.github/workflows/Deploy.yml
     with:
       environment: preview
