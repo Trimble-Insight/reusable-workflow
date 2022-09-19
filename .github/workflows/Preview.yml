@@ -35,9 +35,11 @@ jobs:
     with:
       environment: preview
       cluster-name: preview-cluster
+      aws-account-id: ${{ secrets.LR_AWS_ACCOUNT_ID }}
       # version-build: ${{ needs.set_versioning.outputs.version_build }}
       # version-build: 2
-    secrets: inherit
+    secrets:
+      region: ${{ secrets.LR_AWS_PREVIEW_REGION }}
       
   
   # concurrent-job:

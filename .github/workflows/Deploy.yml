@@ -1,5 +1,6 @@
 on:
   workflow_call:
+    
     inputs:
       environment:
         required: true
@@ -7,6 +8,13 @@ on:
       cluster-name:
         required: false
         type: string
+      aws-account-id: 
+        required: false
+        type: string
+
+    secrets:
+      region:
+        required: true
 
 jobs:
   update_version:
@@ -28,9 +36,12 @@ jobs:
 
       - name: Display Cluster
         run: echo "Cluster is ${{ inputs.cluster-name }}."
-      
-      - name: Show AWS Account ID
-        run: echo "Secret ${{ secrets.ASDF }}"
+
+      - name: AWS Account ID
+        run: echo "AWS Account ID ${{ inputs.aws-account-id }}"
+
+      - name: AWS Region
+        run: echo "AWS Region ${{ secrets.region }}"
 
       - name: Display Secrets Build Version
         run: echo "Updated build version ${{ needs.update_version.outputs.updated_build_version }}"
