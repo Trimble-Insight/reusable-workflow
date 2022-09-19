@@ -31,12 +31,11 @@ jobs:
   #       run: echo "::set-output name=version_build::2"
 
   deploy_to_preview:
-    needs: set_versioning
     uses: ./.github/workflows/Deploy.yml
     with:
       environment: preview
       cluster-name: preview-cluster
-      version-build: ${{ needs.set_versioning.outputs.version_build }}
+      # version-build: ${{ needs.set_versioning.outputs.version_build }}
       # version-build: 2
     secrets: inherit
       
