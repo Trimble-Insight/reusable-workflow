@@ -28,3 +28,6 @@ jobs:
       
       - name: Display Build Version
         run: echo "Build version ${{ inputs.version-build }}"
+
+      - name: Display Secrets Build Version
+        run: echo "Secrets build version ${{ secrets.VERSION_BUILD }}"

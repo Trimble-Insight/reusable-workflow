@@ -21,24 +21,24 @@ on:
     types: [opened, synchronize]
 
 jobs:
-  set_versioning:
-    runs-on: ubuntu-latest
-    outputs:
-      version_build: ${{ steps.set-build-version.outputs.version_build }}
-    steps:
-      - name: Set Build Version
-        id: set-build-version
-        run: echo "::set-output name=version_build::2"
+  # set_versioning:
+  #   runs-on: ubuntu-latest
+  #   outputs:
+  #     version_build: ${{ steps.set-build-version.outputs.version_build }}
+  #   steps:
+  #     - name: Set Build Version
+  #       id: set-build-version
+  #       run: echo "::set-output name=version_build::2"
 
   deploy_to_preview:
-    needs: set_versioning
+    # needs: set_versioning
     call-workflow-passing-data:
       uses: ./.github/workflows/Deploy.yml
       with:
         environment: preview
         cluster-name: preview-cluster
-        version-build: ${{ needs.set_versioning.outputs.version_build }}
-        # version-build: 2
+        # version-build: ${{ needs.set_versioning.outputs.version_build }}
+        version-build: 2
       secrets: inherit
       
   
