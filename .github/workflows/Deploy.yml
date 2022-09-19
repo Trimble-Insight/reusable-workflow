@@ -30,7 +30,7 @@ jobs:
         run: echo "Cluster is ${{ inputs.cluster-name }}."
       
       - name: Show AWS Account ID
-        run: echo "Secret ${{ secrets.AWS_ACCOUNT_ID }}"
+        run: echo "Secret ${{ secrets.ASDF }}"
 
       - name: Display Secrets Build Version
         run: echo "Updated build version ${{ needs.update_version.outputs.updated_build_version }}"
