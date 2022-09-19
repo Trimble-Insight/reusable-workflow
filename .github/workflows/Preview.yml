@@ -13,7 +13,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: First Step
+      call-workflow-passing-data:
         uses: ./.github/workflows/Deploy.yml
         with:
           environment: preview
