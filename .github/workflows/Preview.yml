@@ -11,7 +11,7 @@ jobs:
 
     steps:
       - name: First Step
-        uses: Trimble-Insight/reusable-workflow/.github/workflows/Deploy.yml
+        uses: ./.github/workflows/Deploy.yml
         with:
           environment: preview
           cluster-name: preview-cluster
