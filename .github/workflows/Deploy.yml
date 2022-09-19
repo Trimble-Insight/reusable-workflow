@@ -8,11 +8,10 @@ on:
       cluster-name:
         required: false
         type: string
-      aws-account-id: 
-        required: false
-        type: string
 
     secrets:
+      aws-account-id: 
+        required: false
       region:
         required: true
 
@@ -38,7 +37,7 @@ jobs:
         run: echo "Cluster is ${{ inputs.cluster-name }}."
 
       - name: AWS Account ID
-        run: echo "AWS Account ID ${{ inputs.aws-account-id }}"
+        run: echo "AWS Account ID ${{ secrets.aws-account-id }}"
 
       - name: AWS Region
         run: echo "AWS Region ${{ secrets.region }}"

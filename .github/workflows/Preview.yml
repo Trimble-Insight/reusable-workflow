@@ -35,10 +35,8 @@ jobs:
     with:
       environment: preview
       cluster-name: preview-cluster
-      aws-account-id: ${{ secrets.LR_AWS_ACCOUNT_ID }}
-      # version-build: ${{ needs.set_versioning.outputs.version_build }}
-      # version-build: 2
     secrets:
+      aws-account-id: ${{ secrets.LR_AWS_ACCOUNT_ID }}
       region: ${{ secrets.LR_AWS_PREVIEW_REGION }}
       
   
