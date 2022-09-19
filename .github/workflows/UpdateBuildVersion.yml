@@ -12,7 +12,7 @@ on:
         value: ${{ jobs.update_version.outputs.updated-build-version }}
   
 jobs:
-  update_version:
+  update_version_preview:
     if: ${{ inputs.environment == 'preview' }}
     runs-on: ubuntu-latest
     outputs:
@@ -28,7 +28,7 @@ jobs:
         run: |
           echo ::set-output name=updated-build-version::$((VERSION_BUILD + 1))
   
-  staging:
+  update_version_staging:
     if: ${{ inputs.environment == 'staging' }}
     runs-on: ubuntu-latest
     steps:
