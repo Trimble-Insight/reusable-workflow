@@ -13,7 +13,7 @@ jobs:
     uses: ./.github/workflows/UpdateBuildVersion.yml
     with:
       environment: preview
-      
+
   deploy:
     name: Display inputs
     runs-on: ubuntu-latest
@@ -30,4 +30,4 @@ jobs:
         run: echo "Cluster is ${{ inputs.cluster-name }}."
 
       - name: Display Secrets Build Version
-        run: echo "Secrets build version ${{ needs.update_version.outputs.build_version }}"
+        run: echo "Updated build version ${{ needs.update_version.outputs.updated_build_version }}"

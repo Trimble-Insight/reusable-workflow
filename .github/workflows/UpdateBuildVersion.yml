@@ -1,4 +1,4 @@
-name: Set Build Version
+name: Update Build Version
 
 on:
   workflow_call:
@@ -27,3 +27,10 @@ jobs:
           VERSION_BUILD: ${{secrets.VERSION_BUILD}}
         run: |
           echo ::set-output name=updated-build-version::$((VERSION_BUILD + 1))
+  
+  if: ${{ inputs.environment == 'stasging' }}
+  staging:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display staging
+        run: echo "This is the staging process!"
