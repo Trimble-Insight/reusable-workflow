@@ -6,7 +6,7 @@ on:
         type: string
       cluster-name:
         required: false
-        type: sting
+        type: string
 
 jobs:
   deploy:
