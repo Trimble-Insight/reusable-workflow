@@ -32,11 +32,14 @@ jobs:
 
   deploy_to_preview:
     needs: set_versioning
-    uses: ./.github/workflows/Deploy.yml
+    call-workflow-passing-data:
+      uses: ./.github/workflows/Deploy.yml
       with:
         environment: preview
         cluster-name: preview-cluster
         version-build: ${{ needs.set_versioning.outputs.version_build }}
+        # version-build: 2
+      secrets: inherit
       
   
   # concurrent-job:
