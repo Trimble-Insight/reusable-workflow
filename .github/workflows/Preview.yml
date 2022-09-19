@@ -15,6 +15,3 @@ jobs:
         with:
           environment: preview
           cluster-name: preview-cluster
-
-
-
