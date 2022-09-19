@@ -10,6 +10,9 @@ jobs:
     environment: preview
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
       - name: First Step
         uses: ./.github/workflows/Deploy.yml
         with:
