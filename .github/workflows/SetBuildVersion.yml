@@ -18,4 +18,4 @@ jobs:
         env:
           VERSION_BUILD: ${{secrets.VERSION_BUILD}}
         run: |
-          echo ::set-output name=build_version::$((VERSION_BUILD))
+          echo ::set-output name=build_version::$((VERSION_BUILD + 1))
