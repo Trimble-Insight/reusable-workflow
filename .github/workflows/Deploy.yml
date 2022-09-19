@@ -7,6 +7,9 @@ on:
       cluster-name:
         required: false
         type: string
+      version-build:
+        required: false
+        type: string
 
 jobs:
   deploy:
@@ -22,3 +25,6 @@ jobs:
 
       - name: Display Cluster
         run: echo "Cluster is ${{ inputs.cluster-name }}."
+      
+      - name: Display Build Version
+        run: echo "Build version ${{ inputs.version-build }}"

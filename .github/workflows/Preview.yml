@@ -21,10 +21,20 @@ on:
     types: [opened, synchronize]
 
 jobs:
-  deploy_to_preview:
+  set_versioning:
+    runs-on: ubuntu-latest
+    outputs:
+      version_build: ${{ steps.set-build-version.outputs.version_build }}
     steps:
-    - name: Call Workflow Passing Data
+      id: set-build-version
+      run: echo "::set-output name=version_build::2"
+
+  deploy_to_preview:
+    runs-on: ubuntu-latest
+    needs: set_versioning
+    call-workflow-passing-data:
       uses: ./.github/workflows/Deploy.yml
       with:
         environment: preview
         cluster-name: preview-cluster
+        version-build: ${{ needs.set_versioning.outputs.version_build }}
