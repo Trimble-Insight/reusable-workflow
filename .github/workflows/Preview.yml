@@ -26,8 +26,9 @@ jobs:
     outputs:
       version_build: ${{ steps.set-build-version.outputs.version_build }}
     steps:
-      id: set-build-version
-      run: echo "::set-output name=version_build::2"
+      - name: Set Build Version
+        id: set-build-version
+        run: echo "::set-output name=version_build::2"
 
   deploy_to_preview:
     runs-on: ubuntu-latest
