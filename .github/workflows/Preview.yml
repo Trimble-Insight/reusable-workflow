@@ -21,10 +21,10 @@ on:
     types: [opened, synchronize]
 
 jobs:
-
-  steps:
-  - name: Call Workflow Passing Data
-    uses: ./.github/workflows/Deploy.yml
-    with:
-      environment: preview
-      cluster-name: preview-cluster
+  deploy_to_preview:
+    steps:
+    - name: Call Workflow Passing Data
+      uses: ./.github/workflows/Deploy.yml
+      with:
+        environment: preview
+        cluster-name: preview-cluster
