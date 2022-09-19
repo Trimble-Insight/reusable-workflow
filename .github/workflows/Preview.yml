@@ -23,8 +23,8 @@ name: Call a reusable workflow
 
 on:
   pull_request:
-    branches:
-      - release/preview
+    branches: [release/preview]
+    types: [opened, synchronize]
 
 jobs:
 
