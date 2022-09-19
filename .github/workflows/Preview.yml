@@ -36,7 +36,13 @@ jobs:
     steps:
       - name: Show build version
         run: echo "Build version ${{ needs.set_versioning.outputs.version_build }}"
-    
+  
+  concurrent-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show concurrency
+        run: echo "Concurrency..."
+  
     # call-workflow-passing-data:
     #   uses: ./.github/workflows/Deploy.yml
     #   with:
