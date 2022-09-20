@@ -32,7 +32,7 @@ jobs:
 
       - name: Update output.txt
         run: |
-          sed -i "s/<region>/${{ secrets.region }}/g" output.txt
+          sed -i "s/<region>/${{ inputs.environment }}/g" output.txt
       
       - name: Save to output.text
         uses: pCYSl5EDgo/cat@master
