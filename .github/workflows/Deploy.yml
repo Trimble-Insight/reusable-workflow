@@ -30,17 +30,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Display Environment
-        run: echo "Environment is ${{ inputs.environment }}."
+      - name: Update output.txt
+        run: |
+          sed -i "s/<region>/${{ secrets.region }}/g" output.txt
+      
+      - name: Save to output.text
+        uses: pCYSl5EDgo/cat@master
+        id: save-output
+        with:
+          path: output.txt
 
-      - name: Display Cluster
-        run: echo "Cluster is ${{ inputs.cluster-name }}."
-
-      - name: AWS Account ID
-        run: echo "AWS Account ID ${{ secrets.aws-account-id }}"
-
-      - name: AWS Region
-        run: echo "AWS Region ${{ secrets.region }}"
-
-      - name: Display Secrets Build Version
-        run: echo "Updated build version ${{ needs.update_version.outputs.updated_build_version }}"
+      - name: Show output.txt
+        run: echo $TEXT
+        env:
+          TEXT: ${{ steps.save-output.outputs.text }}
