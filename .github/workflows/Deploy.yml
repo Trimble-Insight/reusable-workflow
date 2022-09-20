@@ -16,10 +16,10 @@ on:
         required: true
 
 jobs:
-  update_version:
-    uses: ./.github/workflows/UpdateBuildVersion.yml
-    with:
-      environment: staging
+  # update_version:
+  #   uses: ./.github/workflows/UpdateBuildVersion.yml
+  #   with:
+  #     environment: staging
 
   deploy:
     name: Display inputs
