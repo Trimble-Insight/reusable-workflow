@@ -16,13 +16,20 @@ jobs:
   #       run: echo "::set-output name=version_build::2"
 
   deploy_to_preview:
-    uses: ./.github/workflows/Deploy.yml
+    if: ${{ false }}
+    uses: ./.github/workflows/DeployTest.yml
     with:
       environment: preview
       cluster-name: preview-cluster
     secrets:
       aws-account-id: ${{ secrets.LR_AWS_ACCOUNT_ID }}
       region: ${{ secrets.LR_AWS_PREVIEW_REGION }}
+      personal-access-token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+      github-token: ${{ secrets.GITHUB_TOKEN }}
+      version-major: ${{ secrets.VERSION_MAJOR }}
+      version-minor: ${{ secrets.VERSION_MINOR }}
+      version-hotfix: ${{ secrets.VERSION_HOTFIX }}
+      version-build: ${{ secrets.VERSION_BUILD }}
       
   
   # concurrent-job:
