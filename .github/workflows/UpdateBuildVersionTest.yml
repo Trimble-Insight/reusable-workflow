@@ -1,0 +1,36 @@
+name: Update Build Version
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+    outputs:
+      updated-build-version:
+        description: "Build version"
+        value: ${{ jobs.update_version.outputs.updated-build-version }}
+  
+jobs:
+  update_version_preview:
+    if: ${{ inputs.environment == 'preview' }}
+    runs-on: ubuntu-latest
+    outputs:
+      updated-build-version: ${{ steps.set-version.outputs.updated-build-version }} 
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Set Build Version
+        id: set-version
+        env:
+          VERSION_BUILD: ${{secrets.VERSION_BUILD}}
+        run: |
+          echo ::set-output name=updated-build-version::$((VERSION_BUILD + 1))
+  
+  update_version_staging:
+    if: ${{ inputs.environment == 'staging' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display staging
+        run: echo "This is the staging process!"

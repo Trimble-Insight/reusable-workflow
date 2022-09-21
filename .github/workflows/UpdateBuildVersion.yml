@@ -1,0 +1,108 @@
+name: Set Build Version
+
+on:
+  workflow_call:
+    inputs:
+      environment: 
+        required: true
+        type: string
+      repository:
+        required: true
+        type: string
+    secrets:
+      personal-access-token:
+        required: true
+      github-token:
+        required: true
+      version-major:
+        required: true
+      version-minor:
+        required: true
+      version-hotfix:
+        required: true
+      version-build:
+        required: true
+      last-preview-build:
+        required: true
+  
+jobs:
+  update_version_preview:
+    if: ${{ inputs.environment == 'preview' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set Build Version
+        id: increment-build
+        env:
+          VERSION_BUILD: ${{secrets.version-build}}
+        run: |
+          echo ::set-output name=updated-build-version::$((VERSION_BUILD + 1))
+      
+      - name : Increment build version - VERSION_BUILD
+        uses: hmanzur/actions-set-secret@v2.0.0
+        with:
+          name: 'VERSION_BUILD'
+          value: ${{ steps.increment-build.outputs.updated-build-version }}
+          repository: 'Trimble-Insight'
+          token: ${{ secrets.personal-access-token }}
+          org: true
+          visibility: 'private'
+      
+      - name : Increment build version - LAST_PREVIEW_BUILD
+        uses: hmanzur/actions-set-secret@v2.0.0
+        with:
+          name: 'LAST_PREVIEW_BUILD'
+          value: ${{ steps.increment-build.outputs.updated-build-version }}
+          repository: ${{ inputs.repository }}
+          token: ${{ secrets.personal-access-token }}
+          visibility: 'private'
+
+      - name: Update app settings
+        run: |
+          sed -i "s/<version>/$VERSION/g" Microservice/appsettings.Preview.json
+        env:
+            VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
+
+      - name: Tag commit
+        uses: tvdias/github-tagger@v0.0.1
+        with:
+          repo-token: "${{ secrets.github-token }}"
+          tag: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
+  
+  update_version_staging:
+    if: ${{ inputs.environment == 'staging' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2 
+      
+      - name: Update app settings
+        run: |
+          sed -i "s/<version>/$VERSION/g" Microservice/appsettings.Staging.json
+      
+      - name: Tag commit
+        uses: tvdias/github-tagger@v0.0.1
+        with:
+          repo-token: "${{ secrets.github-token }}"
+          tag: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{secrets.last-preview-build}}-stg"
+  
+  update_version_production:
+    if: ${{ inputs.environment == 'production' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      
+      - name: Update app settings
+        run: |
+          sed -i "s/<version>/$VERSION/g" Microservice/appsettings.Production.json
+        env:
+          VERSION: "v${{secrets.INSIGHT_PRODUCTION_VERSION_MAJOR}}.${{secrets.INSIGHT_PRODUCTION_VERSION_MINOR}}.${{secrets.INSIGHT_PRODUCTION_VERSION_HOTFIX}}.${{secrets.INSIGHT_PRODUCTION_VERSION_BUILD}}"
+      
+      - name: Tag commit
+        uses: tvdias/github-tagger@v0.0.1
+        with:
+          repo-token: "${{ secrets.github-token }}"
+          tag: "v${{secrets.INSIGHT_PRODUCTION_VERSION_MAJOR}}.${{secrets.INSIGHT_PRODUCTION_VERSION_MINOR}}.${{secrets.INSIGHT_PRODUCTION_VERSION_HOTFIX}}.${{secrets.INSIGHT_PRODUCTION_VERSION_BUILD}}"

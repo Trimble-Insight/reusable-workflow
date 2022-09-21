@@ -1,0 +1,124 @@
+on:
+  workflow_call:
+    
+    inputs:
+      service-name:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+      cluster-name:
+        required: true
+        type: string
+      repository:
+        required: true
+        type: string
+      ecr-repository:
+        required: true
+        type: string
+    
+    secrets:
+      aws-account-id: 
+        required: true
+      region:
+        required: true
+      access-key-id:
+        required: true
+      secret-access-key:
+        required: true
+      personal-access-token:
+        required: true
+      github-token:
+         required: true
+      version-major:
+        required: true
+      version-minor:
+        required: true
+      version-hotfix:
+        required: true
+      version-build:
+        required: true
+      last-preview-build:
+        required: true
+
+jobs:
+  update_version:
+    uses: ./.github/workflows/UpdateBuildVersion.yml
+    with:
+      environment: ${{ inputs.environment }}
+      repository: ${{ inputs.repository }}
+    secrets: 
+      personal-access-token: ${{ secrets.personal-access-token }}
+      github-token: ${{ secrets.github-token }}
+      version-major: ${{ secrets.version-major }}
+      version-minor: ${{ secrets.version-minor }}
+      version-hotfix: ${{ secrets.version-hotfix }}
+      version-build: ${{ secrets.version-build }}
+      last-preview-build: ${{ secrets.last-preview-build }}
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: update_version
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      
+      - name: Update Environment - Dockerfile
+        run: |
+          sed -i "s/<environment_name>/${{ inputs.environment }}/g" dockerfile
+      
+      - name: Configure Task Definition
+        run: |
+          sed -i "s/<aws_account_id>/${{ secrets.aws-account-id }}/g" TaskDefinitions/task-definition-preview.json
+          sed -i "s/<region>/${{ secrets.region }}/g" TaskDefinitions/task-definition-preview.json
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.access-key-id }}
+          aws-secret-access-key: ${{ secrets.secret-access-key }}
+          aws-region: ${{ secrets.region }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+      
+      - name: Build, tag, and push image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
+          ECR_REPOSITORY: ${{ inputs.ecr-repository }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+      
+      - name: Render in the new image ID in the ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: TaskDefinitions/task-definition-${{ inputs.environment }}.json
+          container-name: ${{ inputs.service-name }}
+          image: ${{ steps.build-image.outputs.image }}
+      
+      - name: Deploy ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ inputs.service-name }}
+          cluster: ${{ inputs.cluster-name }}
+          wait-for-service-stability: false
+      
+      # Need a good way to implement Google Chat Notification across environments
+      # - name: Google Chat Notification
+      #   uses: Co-qn/google-chat-notification@releases/v1
+      #   with:
+      #       name: |
+      #         Environment- Preview
+      #         Merged- ${{ github.head_ref }}-v${{secrets.VERSION_MAJOR}}.${{secrets.VERSION_MINOR}}.${{secrets.VERSION_HOTFIX}}.${{steps.increment-build.outputs.updated-build-verison}}
+      #         Responsible- ${{ github.actor }}
+      #       url: ${{secrets.GOOGLE_CHAT_DEPLOYMENT_TRACKER}}
+      #       status: ${{ job.status }}
