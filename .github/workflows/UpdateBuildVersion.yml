@@ -23,7 +23,7 @@ on:
       version-build:
         required: true
       last-preview-build:
-        required: true
+        required: false
   
 jobs:
   update_version_preview:
@@ -99,10 +99,10 @@ jobs:
         run: |
           sed -i "s/<version>/$VERSION/g" Microservice/appsettings.Production.json
         env:
-          VERSION: "v${{secrets.INSIGHT_PRODUCTION_VERSION_MAJOR}}.${{secrets.INSIGHT_PRODUCTION_VERSION_MINOR}}.${{secrets.INSIGHT_PRODUCTION_VERSION_HOTFIX}}.${{secrets.INSIGHT_PRODUCTION_VERSION_BUILD}}"
+          VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{secrets.version-build}}"
       
       - name: Tag commit
         uses: tvdias/github-tagger@v0.0.1
         with:
           repo-token: "${{ secrets.github-token }}"
-          tag: "v${{secrets.INSIGHT_PRODUCTION_VERSION_MAJOR}}.${{secrets.INSIGHT_PRODUCTION_VERSION_MINOR}}.${{secrets.INSIGHT_PRODUCTION_VERSION_HOTFIX}}.${{secrets.INSIGHT_PRODUCTION_VERSION_BUILD}}"
+          tag: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{secrets.version-build}}"
