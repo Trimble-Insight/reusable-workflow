@@ -4,6 +4,8 @@
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
 plan.txt
+output.txt
+output2.txt
 
 # User-specific files
 *.rsuser
