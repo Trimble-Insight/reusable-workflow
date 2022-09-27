@@ -31,6 +31,8 @@ on:
         required: true
       github-token:
          required: true
+      git-admin-user:
+        required: false
       version-major:
         required: true
       version-minor:
@@ -68,6 +70,8 @@ jobs:
       - name: Update Environment - Dockerfile
         run: |
           sed -i "s/<environment_name>/${{ inputs.environment }}/g" dockerfile
+          sed -i "s/<git_pat>/${{ secrets.personal-access-token }}/g" dockerfile
+          sed -i "s/<git_user>/${{ secrets.git-admin-user }}/g" dockerfile
       
       - name: Configure Task Definition
         run: |
@@ -111,3 +115,11 @@ jobs:
           service: ${{ inputs.service-name }}
           cluster: ${{ inputs.cluster-name }}
           wait-for-service-stability: false
+      
+      - name: run postman scripts
+        if: ${{ inputs.service-name == 'Gateway' }}
+        uses: anthonyvscode/newman-action@v1
+        with:
+          collection: "ApiRequests/Collections/Insight-ApiGateway-Monitor.postman_collection.json"
+          environment: "ApiRequests/Environments/Insight-APIGateway-Monitor [${{ inputs.environment }}].postman_environment.json"
+          reporters: cli
