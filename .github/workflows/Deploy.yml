@@ -17,6 +17,9 @@ on:
       ecr-repository:
         required: true
         type: string
+      rule-prefix:
+        required: false
+        type: string
     
     secrets:
       aws-account-id: 
@@ -109,12 +112,22 @@ jobs:
           image: ${{ steps.build-image.outputs.image }}
       
       - name: Deploy ECS task definition
+        if: ${{ inputs.service-name != 'DeviceInfoSynchroniser' }}
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
           service: ${{ inputs.service-name }}
           cluster: ${{ inputs.cluster-name }}
           wait-for-service-stability: false
+      
+      # Specific deployment for DeviceInfoSynchroniser
+      - name: Deploy to ECS Scheduled Tasks
+        if: ${{ inputs.service-name == 'DeviceInfoSynchroniser' }}
+        uses: airfordable/ecs-deploy-task-definition-to-scheduled-task@v2.0.0
+        with:
+          cluster: ${{ inputs.cluster-name }}
+          rule-prefix: ${{ inputs.rule-prefix }}
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
       
       - name: run postman scripts
         if: ${{ inputs.service-name == 'Gateway' }}
