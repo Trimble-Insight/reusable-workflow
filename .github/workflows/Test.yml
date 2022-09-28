@@ -1,0 +1,9 @@
+on:
+  pull_request:
+    types: [opened, synchronize]
+  
+jobs:
+  if: ${{ false }}
+  first-job:
+    - name: Print something
+      run: echo "Something"
