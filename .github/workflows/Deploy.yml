@@ -129,6 +129,7 @@ jobs:
           rule-prefix: ${{ inputs.rule-prefix }}
           task-definition: ${{ steps.task-def.outputs.task-definition }}
       
+      # Specific for Gateway
       - name: run postman scripts
         if: ${{ inputs.service-name == 'Gateway' }}
         uses: anthonyvscode/newman-action@v1
