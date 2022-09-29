@@ -70,20 +70,7 @@ jobs:
         run: |
           sed -i "s/<version>/$VERSION/g" Microservice/appsettings.Preview.json
         env:
-            VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
-
-      # Temp
-      - name: Save Output
-        uses: pCYSl5EDgo/cat@master
-        id: save-output
-        with:
-          path: Microservice/appsettings.Preview.json
-
-      - name: Show Output
-        run: echo $TEXT
-        env:
-          TEXT: ${{ steps.save-output.outputs.text }}
-      # Temp end
+          VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
 
       - name: Tag commit
         uses: tvdias/github-tagger@v0.0.1
