@@ -50,11 +50,11 @@ jobs:
       
       - name: Check for Staging
         if: ${{ inputs.environment == 'staging' }}
-        run: run: echo "FORMATTED_ENVIRONMENT=Staging" >> $GITHUB_ENV
+        run: echo "FORMATTED_ENVIRONMENT=Staging" >> $GITHUB_ENV
       
       - name: Check for Production
         if: ${{ inputs.environment == 'production' }}
-        run: run: echo "FORMATTED_ENVIRONMENT=Production" >> $GITHUB_ENV 
+        run: echo "FORMATTED_ENVIRONMENT=Production" >> $GITHUB_ENV 
       
       - name: Show Formmated Environment
         run: echo "Formatted Environment is ${{ env.FORMATTED_ENVIRONMENT }}"
