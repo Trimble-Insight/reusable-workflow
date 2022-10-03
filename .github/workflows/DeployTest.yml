@@ -59,27 +59,3 @@ jobs:
       
       - name: Show Formmated Environment
         run: echo "Formatted Environment is ${{ steps.check-environment.outputs.FORMATTED_ENVIRONMENT }}"
-
-      - name: Update major
-        run: |
-          sed -i "s/<major>/${{ secrets.version-major }}/g" output.txt
-      
-      - name: Update minor
-        run: |
-          sed -i "s/<minor>/${{ secrets.version-minor }}/g" output.txt
-      
-      - name: Update hotfix
-        run: |
-          sed -i "s/<hotfix>/${{ secrets.version-hotfix }}/g" output.txt
-      
-      - name: Save to output.text
-        uses: pCYSl5EDgo/cat@master
-        id: save-output
-        with:
-          path: output.txt
-
-      - name: Show output.txt
-        run: echo $TEXT
-        env:
-          TEXT: ${{ steps.save-output.outputs.text }}
-      
