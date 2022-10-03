@@ -42,26 +42,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Update major
-        run: |
-          sed -i "s/<major>/${{ secrets.version-major }}/g" output.txt
+      - name: Check for Preview
+        if: ${{ inputs.environment == 'preview' }}
+        run: echo ::set-output name=FORMATTED_ENVIRONMENT::Preview 
+        id: check-environment
       
-      - name: Update minor
-        run: |
-          sed -i "s/<minor>/${{ secrets.version-minor }}/g" output.txt
+      - name: Check for Staging
+        if: ${{ inputs.environment == 'staging'}}
+        run: echo ::set-output name=FORMATTED_ENVIRONMENT::Staging 
+        id: check-environment
       
-      - name: Update hotfix
-        run: |
-          sed -i "s/<hotfix>/${{ secrets.version-hotfix }}/g" output.txt
+      - name: Check for Production
+        if: ${{ inputs.environment == 'production'}}
+        run: echo ::set-output name=FORMATTED_ENVIRONMENT::Production 
+        id: check-environment
       
-      - name: Save to output.text
-        uses: pCYSl5EDgo/cat@master
-        id: save-output
-        with:
-          path: output.txt
-
-      - name: Show output.txt
-        run: echo $TEXT
-        env:
-          TEXT: ${{ steps.save-output.outputs.text }}
-      
+      - name: Show Formmated Environment
+        run: echo "Formatted Environment is ${{ steps.check-environment.outputs.FORMATTED_ENVIRONMENT }}"
