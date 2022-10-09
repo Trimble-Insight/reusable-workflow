@@ -1,0 +1,62 @@
+on:
+  workflow_call:
+    
+    inputs:
+      environment:
+        required: true
+        type: string
+      ecr-repository:
+        required: true
+        type: string
+      docker-tag:
+        required: true
+        type: string
+      lambda-function-name:
+        required: true
+        type: string
+    
+    secrets:
+      aws-account-id: 
+        required: true
+      region:
+        required: true
+      access-key-id:
+        required: true
+      secret-access-key:
+        required: true
+jobs:
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.access-key-id }}
+          aws-secret-access-key: ${{ secrets.secret-access-key }}
+          aws-region: ${{ secrets.region }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
+          ECR_REPOSITORY: ${{ inputs.ecr-repository }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Build a docker container and
+          # push it to ECR so that it can
+          # be deployed to ECS.
+          docker build . -t ${{ inputs.docker-tag }} --build-arg options=opt/options.${{ inputs.environment }}.json
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+      - name: Update AWS Lambda Function Code
+        env:
+          IMAGE_URI: ${{ steps.build-image.outputs.image }}
+        run: |
+          aws lambda update-function-code --function-name arn:aws:lambda:${{ secrets.region }}:${{ secrets.aws-account-id }}:function:${{ inputs.lambda-function-name }} --image-uri $IMAGE_URI
