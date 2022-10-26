@@ -3,10 +3,18 @@ name: Test Deploy
 on:
   pull_request:
     branches: [main]
-    types: [closed]
+    types: [opened, synchronize]
   
 jobs:
+  configure:
+    runs-on: ubuntu-latest
+    uses: ./.github/workflows/TestFlow.yml
+    with:
+      some-input: CognitoLambdaTest
+
+
   deploy:
+    needs: configure
     uses: Trimble-Insight/reusable-workflow/.github/workflows/DeployTest.yml@main
     with:
       environment: preview
