@@ -7,7 +7,6 @@ on:
   
 jobs:
   configure:
-    runs-on: ubuntu-latest
     uses: ./.github/workflows/TestFlow.yml
     with:
       some-input: CognitoLambdaTest
