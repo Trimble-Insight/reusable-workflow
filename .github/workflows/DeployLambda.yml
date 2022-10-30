@@ -43,6 +43,15 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
+      - name: Read File
+        id: template
+        uses: traversals-analytics-and-intelligence/file-reader-action@master
+        with:
+          file: ./${{ inputs.path }}
+      
+      - name: Show File
+        run: echo "${{ steps.template.outputs.content }}"
+
       - name: Build, tag, and push image to Amazon ECR
         id: build-image
         env:
