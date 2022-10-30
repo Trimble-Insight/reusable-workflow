@@ -47,7 +47,7 @@ jobs:
         id: template
         uses: traversals-analytics-and-intelligence/file-reader-action@master
         with:
-          file: ./${{ inputs.path }}
+          file: ./LambdaFunctions/CognitoFunctions/CustomMessageFunction/custom-message.js
       
       - name: Show File
         run: echo "${{ steps.template.outputs.content }}"
