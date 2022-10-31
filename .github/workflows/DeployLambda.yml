@@ -46,7 +46,7 @@ on:
       insighthq-identity-password:
         required: false
       insighthq-identity-hostname:
-      required: false
+        required: false
       
 jobs:
   deploy:
