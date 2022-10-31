@@ -13,6 +13,24 @@ on:
       ecr-repository:
         required: true
         type: string
+      function-path:
+        required: true
+        type: string
+      lambda:
+        required: true
+        type: string
+      domain:
+        required: false
+        type: string
+      bucket:
+        required: false
+        type: string
+      source:
+        required: false
+        type: string
+      forgot-password-link:
+        required: false
+        type: string
 
     secrets:
       aws-account-id: 
@@ -23,7 +41,13 @@ on:
         required: true
       secret-access-key:
         required: true
-
+      insighthq-identity-username:
+        required: false
+      insighthq-identity-password:
+        required: false
+      insighthq-identity-hostname:
+      required: false
+      
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -43,14 +67,40 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Read File
-        id: template
-        uses: traversals-analytics-and-intelligence/file-reader-action@master
-        with:
-          file: ./LambdaFunctions/CognitoFunctions/CustomMessageFunction/custom-message.js
+      - name: Set Domain Name
+        if: ${{ inputs.lambda == 'CustomMessage' }}
+        run: |
+            sed -i "s/<domain_name>/${{ inputs.domain }}/g" ${{ inputs.function-path }}
       
-      - name: Show File
-        run: echo "${{ steps.template.outputs.content }}"
+      - name: Set S3 Bucket
+        if: ${{ inputs.lambda == 'CustomMessage' }}
+        run: |
+          sed -i "s/<bucket_name>/${{ inputs.bucket }}/g" ${{ env.function-path }}
+      
+      - name: Set Email Sender
+        if: ${{ inputs.lambda == 'PostConfirmation' }}
+        run: |
+          sed -i "s/<source>/${{ inputs.source }}/g" ${{ env.function-path }}
+      
+      - name: Set forgot password link
+        if: ${{ inputs.lambda == 'PostConfirmation' }}
+        run: |
+          sed -i "s_<forgotpassword>_${{ inputs.forgot-password-link }}_" ${{ env.function-path }}
+      
+      - name: Set Identity Username
+        if: ${{ inputs.lambda == 'PreToken' }}
+        run: |
+            sed -i "s/<USERNAME>/${{ secrets.insighthq-identity-username }}/g" ${{ env.function-path }}
+      
+      - name: Set Identity Password
+        if: ${{ inputs.lambda == 'PreToken' }}
+        run: |
+            sed -i "s/<PASSWORD>/${{ secrets.insighthq-identity-password }}/g" ${{ env.function-path }}
+      
+      - name: Configure environment settings
+        if: ${{ inputs.lambda == 'PreToken' }}
+        run: |
+            sed -i "s/<HOSTNAME>/${{ secrets.insighthq-identity-hostname }}/g" ${{ env.function-path }}
 
       - name: Build, tag, and push image to Amazon ECR
         id: build-image
