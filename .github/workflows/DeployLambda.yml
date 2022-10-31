@@ -69,38 +69,31 @@ jobs:
 
       - name: Set Domain Name
         if: ${{ inputs.lambda == 'CustomMessage' }}
-        run: |
-            sed -i "s/<domain_name>/${{ inputs.domain }}/g" ${{ inputs.function-path }}
+        run: sed -i "s/<domain_name>/${{ inputs.domain }}/g" ${{ inputs.function-path }}
       
       - name: Set S3 Bucket
         if: ${{ inputs.lambda == 'CustomMessage' }}
-        run: |
-          sed -i "s/<bucket_name>/${{ inputs.bucket }}/g" ${{ inputs.function-path }}
+        run: sed -i "s/<bucket_name>/${{ inputs.bucket }}/g" ${{ inputs.function-path }}
       
       - name: Set Email Sender
         if: ${{ inputs.lambda == 'PostConfirmation' }}
-        run: |
-          sed -i "s/<source>/${{ inputs.source }}/g" ${{ inputs.function-path }}
+        run: sed -i "s/<source>/${{ inputs.source }}/g" ${{ inputs.function-path }}
       
       - name: Set forgot password link
         if: ${{ inputs.lambda == 'PostConfirmation' }}
-        run: |
-          sed -i "s_<forgotpassword>_${{ inputs.forgot-password-link }}_" ${{ inputs.function-path }}
+        run: sed -i "s_<forgotpassword>_${{ inputs.forgot-password-link }}_" ${{ inputs.function-path }}
       
       - name: Set Identity Username
         if: ${{ inputs.lambda == 'PreToken' }}
-        run: |
-            sed -i "s/<USERNAME>/${{ secrets.insighthq-identity-username }}/g" ${{ inputs.function-path }}
+        run: sed -i "s/<USERNAME>/${{ secrets.insighthq-identity-username }}/g" ${{ inputs.function-path }}
       
       - name: Set Identity Password
         if: ${{ inputs.lambda == 'PreToken' }}
-        run: |
-            sed -i "s/<PASSWORD>/${{ secrets.insighthq-identity-password }}/g" ${{ inputs.function-path }}
+        run: sed -i "s/<PASSWORD>/${{ secrets.insighthq-identity-password }}/g" ${{ inputs.function-path }}
       
-      - name: Configure environment settings
+      - name: Set Hostname
         if: ${{ inputs.lambda == 'PreToken' }}
-        run: |
-            sed -i "s/<HOSTNAME>/${{ secrets.insighthq-identity-hostname }}/g" ${{ inputs.function-path }}
+        run: sed -i "s/<HOSTNAME>/${{ secrets.insighthq-identity-hostname }}/g" ${{ inputs.function-path }}
 
       - name: Build, tag, and push image to Amazon ECR
         id: build-image
