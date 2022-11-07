@@ -182,7 +182,7 @@ jobs:
       
       # Only executed to cache node_modules in the default branch (preview)
       - name: Setup Node JS v14
-        if: ${{ inputs.service-name == 'Home' }}  && ${{ inputs.environment == 'preview' }} 
+        if: ${{ inputs.service-name == 'Home' && inputs.environment == 'preview' }}
         id: node-setup 
         uses: actions/setup-node@v3
         with:
@@ -190,7 +190,7 @@ jobs:
       
       # Only executed to Cache node_modules in the default branch (preview)
       - name: Cache Node Modules
-        if: ${{ inputs.service-name == 'Home' }}  && ${{ inputs.environment == 'preview' }}
+        if: ${{ inputs.service-name == 'Home' && inputs.environment == 'preview' }}
         id: cache-node
         uses: actions/cache@v3
         with:
