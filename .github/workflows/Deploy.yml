@@ -46,6 +46,14 @@ on:
         required: true
       last-preview-build:
         required: false
+      firebase-api-key:
+        required: false
+      google-api-key:
+        required: false
+      google-ios-api-key:
+        required: false
+      google-map-api-key:
+        required: false
 
 jobs:
   update_version:
@@ -85,10 +93,31 @@ jobs:
         run: echo "FORMATTED_ENVIRONMENT=Production" >> $GITHUB_ENV 
       
       - name: Update Environment - Dockerfile
+        if: ${{ inputs.service-name }} != 'Home'
         run: |
           sed -i "s/<environment_name>/${{ env.FORMATTED_ENVIRONMENT }}/g" dockerfile
           sed -i "s/<git_pat>/${{ secrets.personal-access-token }}/g" dockerfile
           sed -i "s/<git_user>/${{ secrets.git-admin-user }}/g" dockerfile
+      
+      - name: Update API Keys - Home
+        if: ${{ inputs.service-name == 'Home' }} 
+        run: |
+          sed -i "s/<version>/$VERSION/g" Microservice/src/environments/environment.preview.ts
+          sed -i "s/<firebase_api_key>/$FIREBASE_API_KEY/g" Microservice/src/environments/environment.preview.ts
+          sed -i "s/<google_api_key>/$GOOGLE_API_KEY/g" Microservice/android/app/google-services-preview.json
+          sed -i "s/<google_ios_api_key>/$GOOGLE_IOS_API_KEY/g" Microservice/ios/App/App/GoogleService-Info-preview.plist
+          sed -i "s/<googlemap_api_key>/$GOOGLE_MAP_API_KEY/g" Microservice/src/environments/environment.preview.ts
+          sed -i "s/<googlemap_api_key>/$GOOGLE_MAP_API_KEY/g" Microservice/src/index.html
+          sed -i "s/<googlemap_api_key>/$GOOGLE_MAP_API_KEY/g" Microservice/capacitor.config.json
+          sed -i "s/<googlemap_api_key>/$GOOGLE_MAP_API_KEY/g" Microservice/config.xml
+          sed -i "s/<googlemap_api_key>/$GOOGLE_MAP_API_KEY/g" Microservice/android/app/src/main/assets/capacitor.config.json
+          sed -i "s/<googlemap_api_key>/$GOOGLE_MAP_API_KEY/g" Microservice/ios/App/App/capacitor.config.json
+        env:
+            VERSION: "v${{secrets.VERSION_MAJOR}}.${{secrets.VERSION_MINOR}}.${{secrets.VERSION_HOTFIX}}.${{steps.increment-build.outputs.updated-build-verison}}"
+            FIREBASE_API_KEY: "${{ secrets.firebase-api-key }}"
+            GOOGLE_API_KEY: "${{ secrets.google-api-key }}"
+            GOOGLE_IOS_API_KEY: "${{ secrets.google-ios-api-key }}"
+            GOOGLE_MAP_API_KEY: "${{ secrets.google-map-api-key }}"
       
       - name: Configure Task Definition
         run: |
@@ -151,3 +180,22 @@ jobs:
           collection: "ApiRequests/Collections/Insight-ApiGateway-Monitor.postman_collection.json"
           environment: "ApiRequests/Environments/Insight-APIGateway-Monitor [${{ inputs.environment }}].postman_environment.json"
           reporters: cli
+      
+      # Only executed to cache node_modules in the default branch (preview)
+      - name: Setup Node JS v14
+        if: ${{ inputs.service-name == 'Home' }}  && ${{ inputs.environment == 'preview' }} 
+        id: node-setup 
+        uses: actions/setup-node@v3
+        with:
+          node-version: 14 
+      
+      # Only executed to Cache node_modules in the default branch (preview)
+      - name: Cache Node Modules
+        if: ${{ inputs.service-name == 'Home' }}  && ${{ inputs.environment == 'preview' }}
+        id: cache-node
+        uses: actions/cache@v3
+        with:
+          path: Microservice/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('Microservice/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
