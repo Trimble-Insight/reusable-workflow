@@ -59,6 +59,7 @@ jobs:
   update_version:
     uses: ./.github/workflows/UpdateBuildVersion.yml
     with:
+      service-name: ${{ inputs.service-name }}
       environment: ${{ inputs.environment }}
       repository: ${{ inputs.repository }}
     secrets: 
