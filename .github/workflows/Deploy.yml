@@ -181,7 +181,7 @@ jobs:
           reporters: cli
       
       # Only executed to cache node_modules in the default branch (preview)
-      - name: Setup Node JS v14
+      - name: Setup Node JS v14 (Home)
         if: ${{ inputs.service-name == 'Home' && inputs.environment == 'preview' }}
         id: node-setup 
         uses: actions/setup-node@v3
@@ -189,7 +189,7 @@ jobs:
           node-version: 14 
       
       # Only executed to Cache node_modules in the default branch (preview)
-      - name: Cache Node Modules
+      - name: Cache Node Modules (Home) 
         if: ${{ inputs.service-name == 'Home' && inputs.environment == 'preview' }}
         id: cache-node
         uses: actions/cache@v3
@@ -198,3 +198,10 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('Microservice/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-
+      
+      # Only executed to Cache node_modules in the default branch (preview)
+      - name: Install Dependencies (Home)
+        if: ${{ inputs.service-name == 'Home' && inputs.environment == 'preview' && steps.cache-node.outputs.cache-hit != 'true' }}
+        run: |
+          cd Microservice
+          npm install
