@@ -93,7 +93,7 @@ jobs:
         run: echo "FORMATTED_ENVIRONMENT=Production" >> $GITHUB_ENV 
       
       - name: Update Environment - Dockerfile
-        if: ${{ inputs.service-name }} != 'Home'
+        if: ${{ inputs.service-name != 'Home' }} 
         run: |
           sed -i "s/<environment_name>/${{ env.FORMATTED_ENVIRONMENT }}/g" dockerfile
           sed -i "s/<git_pat>/${{ secrets.personal-access-token }}/g" dockerfile
