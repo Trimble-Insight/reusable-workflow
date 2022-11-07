@@ -3,6 +3,9 @@ name: Set Build Version
 on:
   workflow_call:
     inputs:
+      service-name:
+        required: false
+        type: string
       environment: 
         required: true
         type: string
@@ -72,6 +75,13 @@ jobs:
         env:
           VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
 
+      - name: Update environment settings - Home
+        if: ${{ inputs.service-name == 'Home' }} 
+        run: |
+          sed -i "s/<version>/$VERSION/g" Microservice/src/environments/environment.preview.ts
+        env:
+          VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
+
       - name: Tag commit
         uses: tvdias/github-tagger@v0.0.1
         with:
@@ -81,6 +91,9 @@ jobs:
   update_version_staging:
     if: ${{ inputs.environment == 'staging' }}
     runs-on: ubuntu-latest
+    env:
+      VERSION: v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{secrets.last-preview-build}}-stg
+
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -94,17 +107,24 @@ jobs:
       - name: Update app settings
         if: steps.check_files.outputs.files_exists == 'true'
         run: |
-          sed -i "s/<version>/$VERSION/g" Microservice/appsettings.Staging.json
+          sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/appsettings.Staging.json
       
+      - name: Update environment settings - Home
+        if: ${{ inputs.service-name == 'Home' }}
+        run: sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/src/environments/environment.staging.ts
+
       - name: Tag commit
         uses: tvdias/github-tagger@v0.0.1
         with:
           repo-token: "${{ secrets.github-token }}"
-          tag: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{secrets.last-preview-build}}-stg"
+          tag: ${{ env.VERSION }}
   
   update_version_production:
     if: ${{ inputs.environment == 'production' }}
     runs-on: ubuntu-latest
+    env:
+      VERSION: v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{secrets.version-build}}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -118,12 +138,14 @@ jobs:
       - name: Update app settings
         if: steps.check_files.outputs.files_exists == 'true'
         run: |
-          sed -i "s/<version>/$VERSION/g" Microservice/appsettings.Production.json
-        env:
-          VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{secrets.version-build}}"
+          sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/appsettings.Production.json
+
+      - name: Update environment settings - Home
+        if: ${{ inputs.service-name == 'Home' }} 
+        run: sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/src/environments/environment.prod.ts
       
       - name: Tag commit
         uses: tvdias/github-tagger@v0.0.1
         with:
           repo-token: "${{ secrets.github-token }}"
-          tag: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{secrets.version-build}}"
+          tag: "${{ env.VERSION }}"
