@@ -102,7 +102,6 @@ jobs:
       - name: Update API Keys - Home
         if: ${{ inputs.service-name == 'Home' }} 
         run: |
-          sed -i "s/<version>/$VERSION/g" Microservice/src/environments/environment.preview.ts
           sed -i "s/<firebase_api_key>/$FIREBASE_API_KEY/g" Microservice/src/environments/environment.preview.ts
           sed -i "s/<google_api_key>/$GOOGLE_API_KEY/g" Microservice/android/app/google-services-preview.json
           sed -i "s/<google_ios_api_key>/$GOOGLE_IOS_API_KEY/g" Microservice/ios/App/App/GoogleService-Info-preview.plist
@@ -113,7 +112,6 @@ jobs:
           sed -i "s/<googlemap_api_key>/$GOOGLE_MAP_API_KEY/g" Microservice/android/app/src/main/assets/capacitor.config.json
           sed -i "s/<googlemap_api_key>/$GOOGLE_MAP_API_KEY/g" Microservice/ios/App/App/capacitor.config.json
         env:
-            VERSION: "v${{secrets.VERSION_MAJOR}}.${{secrets.VERSION_MINOR}}.${{secrets.VERSION_HOTFIX}}.${{steps.increment-build.outputs.updated-build-verison}}"
             FIREBASE_API_KEY: "${{ secrets.firebase-api-key }}"
             GOOGLE_API_KEY: "${{ secrets.google-api-key }}"
             GOOGLE_IOS_API_KEY: "${{ secrets.google-ios-api-key }}"
