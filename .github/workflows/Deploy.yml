@@ -93,16 +93,17 @@ jobs:
         if: ${{ inputs.environment == 'production' }}
         run: echo "FORMATTED_ENVIRONMENT=Production" >> $GITHUB_ENV 
       
-      - name: Update Environment - Dockerfile
+      - name: Configure Dockerfile
         if: ${{ inputs.service-name != 'Home' }} 
         run: |
           sed -i "s/<environment_name>/${{ env.FORMATTED_ENVIRONMENT }}/g" dockerfile
           sed -i "s/<git_pat>/${{ secrets.personal-access-token }}/g" dockerfile
           sed -i "s/<git_user>/${{ secrets.git-admin-user }}/g" dockerfile
       
-      - name: Update API Keys - Home
+      - name: Configure API Keys & Dockerfile - Home
         if: ${{ inputs.service-name == 'Home' }} 
         run: |
+          sed -i "s/<environment_name>/${{ inputs.environment }}/g" dockerfile
           sed -i "s/<firebase_api_key>/$FIREBASE_API_KEY/g" Microservice/src/environments/environment.preview.ts
           sed -i "s/<google_api_key>/$GOOGLE_API_KEY/g" Microservice/android/app/google-services-preview.json
           sed -i "s/<google_ios_api_key>/$GOOGLE_IOS_API_KEY/g" Microservice/ios/App/App/GoogleService-Info-preview.plist
