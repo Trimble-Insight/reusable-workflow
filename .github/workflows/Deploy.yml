@@ -100,7 +100,7 @@ jobs:
           sed -i "s/<git_pat>/${{ secrets.personal-access-token }}/g" dockerfile
           sed -i "s/<git_user>/${{ secrets.git-admin-user }}/g" dockerfile
       
-      - name: Configure API Keys & Dockerfile - Home
+      - name: Configure API Keys & Dockerfile (Home)
         if: ${{ inputs.service-name == 'Home' }} 
         run: |
           sed -i "s/<environment_name>/${{ inputs.environment }}/g" dockerfile
@@ -180,25 +180,18 @@ jobs:
           collection: "ApiRequests/Collections/Insight-ApiGateway-Monitor.postman_collection.json"
           environment: "ApiRequests/Environments/Insight-APIGateway-Monitor [${{ inputs.environment }}].postman_environment.json"
           reporters: cli
-      
-      # Only executed to cache node_modules in the default branch (preview)
-      - name: Setup Node JS v14 (Home)
-        if: ${{ inputs.service-name == 'Home' && inputs.environment == 'preview' }}
-        id: node-setup 
-        uses: actions/setup-node@v3
-        with:
-          node-version: 14 
-      
+     
       # Only executed to Cache node_modules in the default branch (preview)
       - name: Cache Node Modules (Home) 
         if: ${{ inputs.service-name == 'Home' && inputs.environment == 'preview' }}
         id: cache-node
         uses: actions/cache@v3
         with:
-          path: Microservice/node_modules
+          path: ~/.npm
           key: ${{ runner.os }}-node-${{ hashFiles('Microservice/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-
+            ${{ runner.os }}-
       
       # Only executed to Cache node_modules in the default branch (preview)
       - name: Install Dependencies (Home)
