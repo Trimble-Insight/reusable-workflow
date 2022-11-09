@@ -144,7 +144,7 @@ jobs:
       - name: Login to ECR
         uses: docker/login-action@v2
         with:
-          registry: ${{ inputs.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
+          registry: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
           username: ${{ secrets.access-key-id }}
           password: ${{ secrets.secret-access-key }}
       
