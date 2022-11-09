@@ -127,16 +127,16 @@ jobs:
           sed -i "s/<aws_account_id>/${{ secrets.aws-account-id }}/g" TaskDefinitions/task-definition-${{ inputs.environment }}.json
           sed -i "s/<region>/${{ secrets.region }}/g" TaskDefinitions/task-definition-${{ inputs.environment }}.json
       
-      # - name: Configure AWS credentials
-      #   uses: aws-actions/configure-aws-credentials@v1
-      #   with:
-      #     aws-access-key-id: ${{ secrets.access-key-id }}
-      #     aws-secret-access-key: ${{ secrets.secret-access-key }}
-      #     aws-region: ${{ secrets.region }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.access-key-id }}
+          aws-secret-access-key: ${{ secrets.secret-access-key }}
+          aws-region: ${{ secrets.region }}
       
-      # - name: Login to Amazon ECR
-      #   id: login-ecr
-      #   uses: aws-actions/amazon-ecr-login@v1
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
