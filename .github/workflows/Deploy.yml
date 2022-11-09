@@ -76,6 +76,9 @@ jobs:
     needs: update_version
     env:
       FORMATTED_ENVIRONMENT: null
+      ECR_REGISTRY: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
+      ECR_REPOSITORY: ${{ inputs.ecr-repository }}
+      IMAGE_TAG: ${{ github.sha }}
 
     steps:
       - name: Checkout
@@ -124,27 +127,50 @@ jobs:
           sed -i "s/<aws_account_id>/${{ secrets.aws-account-id }}/g" TaskDefinitions/task-definition-${{ inputs.environment }}.json
           sed -i "s/<region>/${{ secrets.region }}/g" TaskDefinitions/task-definition-${{ inputs.environment }}.json
       
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+      # - name: Configure AWS credentials
+      #   uses: aws-actions/configure-aws-credentials@v1
+      #   with:
+      #     aws-access-key-id: ${{ secrets.access-key-id }}
+      #     aws-secret-access-key: ${{ secrets.secret-access-key }}
+      #     aws-region: ${{ secrets.region }}
+      
+      # - name: Login to Amazon ECR
+      #   id: login-ecr
+      #   uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to ECR
+        uses: docker/login-action@v2
         with:
-          aws-access-key-id: ${{ secrets.access-key-id }}
-          aws-secret-access-key: ${{ secrets.secret-access-key }}
-          aws-region: ${{ secrets.region }}
+          registry: ${{ inputs.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
+          username: ${{ secrets.access-key-id }}
+          password: ${{ secrets.secret-access-key }}
       
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-      
-      - name: Build, tag, and push image to ECR
+      - name: Build, tag and push
         id: build-image
-        env:
-          ECR_REGISTRY: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
-          ECR_REPOSITORY: ${{ inputs.ecr-repository }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
-          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: Show Image ID
+        run: echo "Image ID is ${{ steps.build-image.outputs.imageid }}""
+
+      # - name: Build, tag, and push image to ECR
+      #   id: build-image
+      #   env:
+      #     ECR_REGISTRY: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
+      #     ECR_REPOSITORY: ${{ inputs.ecr-repository }}
+      #     IMAGE_TAG: ${{ github.sha }}
+      #   run: |
+      #     docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
+      #     docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+      #     echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
       
       - name: Render in the new image ID in the ECS task definition
         id: task-def
@@ -152,7 +178,7 @@ jobs:
         with:
           task-definition: TaskDefinitions/task-definition-${{ inputs.environment }}.json
           container-name: ${{ inputs.service-name }}
-          image: ${{ steps.build-image.outputs.image }}
+          image: ${{ steps.build-image.outputs.imageid }}
       
       - name: Deploy ECS task definition
         if: ${{ inputs.service-name != 'DeviceInfoSynchroniser' }}
@@ -194,8 +220,8 @@ jobs:
             ${{ runner.os }}-
       
       # Only executed to Cache node_modules in the default branch (preview)
-      - name: Install Dependencies (Home)
-        if: ${{ inputs.service-name == 'Home' && inputs.environment == 'preview' && steps.cache-node.outputs.cache-hit != 'true' }}
-        run: |
-          cd Microservice
-          npm install
+      # - name: Install Dependencies (Home)
+      #   if: ${{ inputs.service-name == 'Home' && inputs.environment == 'preview' && steps.cache-node.outputs.cache-hit != 'true' }}
+      #   run: |
+      #     cd Microservice
+      #     npm install
