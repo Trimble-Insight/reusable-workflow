@@ -157,17 +157,6 @@ jobs:
           tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      # - name: Build, tag, and push image to ECR
-      #   id: build-image
-      #   env:
-      #     ECR_REGISTRY: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
-      #     ECR_REPOSITORY: ${{ inputs.ecr-repository }}
-      #     IMAGE_TAG: ${{ github.sha }}
-      #   run: |
-      #     docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
-      #     docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-      #     echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
       
       - name: Render in the new image ID in the ECS task definition
         id: task-def
@@ -203,22 +192,3 @@ jobs:
           collection: "ApiRequests/Collections/Insight-ApiGateway-Monitor.postman_collection.json"
           environment: "ApiRequests/Environments/Insight-APIGateway-Monitor [${{ inputs.environment }}].postman_environment.json"
           reporters: cli
-     
-      # Only executed to Cache node_modules in the default branch (preview)
-      - name: Cache Node Modules (Home) 
-        if: ${{ inputs.service-name == 'Home' && inputs.environment == 'preview' }}
-        id: cache-node
-        uses: actions/cache@v3
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('Microservice/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-            ${{ runner.os }}-
-      
-      # Only executed to Cache node_modules in the default branch (preview)
-      # - name: Install Dependencies (Home)
-      #   if: ${{ inputs.service-name == 'Home' && inputs.environment == 'preview' && steps.cache-node.outputs.cache-hit != 'true' }}
-      #   run: |
-      #     cd Microservice
-      #     npm install
