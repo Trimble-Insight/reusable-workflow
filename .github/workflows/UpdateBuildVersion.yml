@@ -35,6 +35,7 @@ jobs:
   update_version_preview:
     if: ${{ inputs.environment == 'preview' }}
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3

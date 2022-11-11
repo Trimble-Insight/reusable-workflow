@@ -78,6 +78,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: update_version
+    environment: ${{ inputs.environment }}
     env:
       FORMATTED_ENVIRONMENT: null
       ECR_REGISTRY: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
