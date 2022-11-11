@@ -20,6 +20,9 @@ on:
       rule-prefix:
         required: false
         type: string
+      environment-file:
+        required: false
+        type: string
     
     secrets:
       aws-account-id: 
@@ -62,6 +65,7 @@ jobs:
       service-name: ${{ inputs.service-name }}
       environment: ${{ inputs.environment }}
       repository: ${{ inputs.repository }}
+      environment-file: ${{ inputs.environment-file }}
     secrets: 
       personal-access-token: ${{ secrets.personal-access-token }}
       github-token: ${{ secrets.github-token }}
@@ -107,20 +111,15 @@ jobs:
         if: ${{ inputs.service-name == 'Home' }} 
         run: |
           sed -i "s/<environment_name>/${{ inputs.environment }}/g" dockerfile
-          sed -i "s/<firebase_api_key>/$FIREBASE_API_KEY/g" Microservice/src/environments/environment.preview.ts
-          sed -i "s/<google_api_key>/$GOOGLE_API_KEY/g" Microservice/android/app/google-services-preview.json
-          sed -i "s/<google_ios_api_key>/$GOOGLE_IOS_API_KEY/g" Microservice/ios/App/App/GoogleService-Info-preview.plist
-          sed -i "s/<googlemap_api_key>/$GOOGLE_MAP_API_KEY/g" Microservice/src/environments/environment.preview.ts
-          sed -i "s/<googlemap_api_key>/$GOOGLE_MAP_API_KEY/g" Microservice/src/index.html
-          sed -i "s/<googlemap_api_key>/$GOOGLE_MAP_API_KEY/g" Microservice/capacitor.config.json
-          sed -i "s/<googlemap_api_key>/$GOOGLE_MAP_API_KEY/g" Microservice/config.xml
-          sed -i "s/<googlemap_api_key>/$GOOGLE_MAP_API_KEY/g" Microservice/android/app/src/main/assets/capacitor.config.json
-          sed -i "s/<googlemap_api_key>/$GOOGLE_MAP_API_KEY/g" Microservice/ios/App/App/capacitor.config.json
-        env:
-            FIREBASE_API_KEY: "${{ secrets.firebase-api-key }}"
-            GOOGLE_API_KEY: "${{ secrets.google-api-key }}"
-            GOOGLE_IOS_API_KEY: "${{ secrets.google-ios-api-key }}"
-            GOOGLE_MAP_API_KEY: "${{ secrets.google-map-api-key }}"
+          sed -i "s/<firebase_api_key>/${{ secrets.firebase-api-key }}/g" Microservice/src/environments/${{ inputs.environment-file }}
+          sed -i "s/<google_api_key>/${{ secrets.google-api-key }}/g" Microservice/android/app/google-services-${{ inputs.environment }}.json
+          sed -i "s/<google_ios_api_key>/${{ secrets.google-ios-api-key }}/g" Microservice/ios/App/App/GoogleService-Info-${{ inputs.environment }}.plist
+          sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/src/environments/${{ inputs.environment-file }}
+          sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/src/index.html
+          sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/capacitor.config.json
+          sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/config.xml
+          sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/android/app/src/main/assets/capacitor.config.json
+          sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/ios/App/App/capacitor.config.json
       
       - name: Configure Task Definition
         run: |

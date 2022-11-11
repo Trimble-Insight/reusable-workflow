@@ -12,6 +12,9 @@ on:
       repository:
         required: true
         type: string
+      environment-file:
+        required: false
+        type: string
     secrets:
       personal-access-token:
         required: true
@@ -78,7 +81,7 @@ jobs:
       - name: Update environment settings - Home
         if: ${{ inputs.service-name == 'Home' }} 
         run: |
-          sed -i "s/<version>/$VERSION/g" Microservice/src/environments/environment.preview.ts
+          sed -i "s/<version>/$VERSION/g" Microservice/src/environments/${{ inputs.environment-file }}
         env:
           VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
 
