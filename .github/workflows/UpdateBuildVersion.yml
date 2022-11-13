@@ -78,11 +78,10 @@ jobs:
           sed -i "s/<version>/$VERSION/g" Microservice/appsettings.Preview.json
         env:
           VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
-
+      
       - name: Update environment settings - Home
-        if: ${{ inputs.service-name == 'Home' }} 
-        run: |
-          sed -i "s/<version>/$VERSION/g" Microservice/src/environments/environment.preview.ts
+        if: ${{ inputs.service-name == 'Home' }}
+        run: sed -i "s/<version>/$VERSION/g" Microservice/src/environments/environment.preview.ts
         env:
           VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
 
