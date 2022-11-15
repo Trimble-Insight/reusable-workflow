@@ -117,7 +117,7 @@ jobs:
     if: ${{ inputs.environment == 'staging' }}
     runs-on: ubuntu-latest
     env:
-      VERSION: v${{env.VERSION_MAJOR}}.${{env.VERSION_MINOR}}.${{env.VERSION_HOTFIX}}.${{env.LAST_PREVIEW_BUILD}}-stg
+      VERSION: v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{secrets.last-preview-build}}-stg
 
     steps:
       - name: Checkout
@@ -148,7 +148,7 @@ jobs:
     if: ${{ inputs.environment == 'production' }}
     runs-on: ubuntu-latest
     env:
-      VERSION: v${{env.VERSION_MAJOR}}.${{env.VERSION_MINOR}}.${{env.VERSION_HOTFIX}}.${{env.VERSION_BUILD}}
+      VERSION: v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{secrets.last-preview-build}}
 
     steps:
       - name: Checkout
