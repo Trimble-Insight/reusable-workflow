@@ -66,14 +66,19 @@ jobs:
       environment: ${{ inputs.environment }}
       repository: ${{ inputs.repository }}
       environment-file: ${{ inputs.environment-file }}
-    secrets: 
-      personal-access-token: ${{ secrets.personal-access-token }}
-      github-token: ${{ secrets.github-token }}
       version-major: ${{ secrets.version-major }}
       version-minor: ${{ secrets.version-minor }}
       version-hotfix: ${{ secrets.version-hotfix }}
       version-build: ${{ secrets.version-build }}
       last-preview-build: ${{ secrets.last-preview-build }}
+    secrets: 
+      personal-access-token: ${{ secrets.personal-access-token }}
+      github-token: ${{ secrets.github-token }}
+      # version-major: ${{ secrets.version-major }}
+      # version-minor: ${{ secrets.version-minor }}
+      # version-hotfix: ${{ secrets.version-hotfix }}
+      # version-build: ${{ secrets.version-build }}
+      # last-preview-build: ${{ secrets.last-preview-build }}
 
   deploy:
     runs-on: ubuntu-latest
@@ -84,7 +89,7 @@ jobs:
       ECR_REGISTRY: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
       ECR_REPOSITORY: ${{ inputs.ecr-repository }}
       IMAGE_TAG: ${{ github.sha }}
-      PREVIEW_VERSION: v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{needs.update_version.outputs.updated-build}}
+      PREVIEW_VERSION: ${{ needs.update_version.outputs.preview-version }}
 
     steps:
       - name: Checkout
