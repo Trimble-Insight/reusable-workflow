@@ -15,26 +15,21 @@ on:
       environment-file:
         required: false
         type: string
-      version-major:
-        required: true
-        type: string
-      version-minor:
-        required: true
-        type: string
-      version-hotfix:
-        required: true
-        type: string
-      version-build:
-        required: true
-        type: string
-      last-preview-build:
-        required: false
-        type: string
     secrets:
       personal-access-token:
         required: true
       github-token:
         required: true
+      version-major:
+        required: true
+      version-minor:
+        required: true
+      version-hotfix:
+        required: true
+      version-build:
+        required: true
+      last-preview-build:
+        required: false
     outputs:
       preview-version:
         description: "Version number for preview"
@@ -47,6 +42,11 @@ jobs:
     environment: ${{ inputs.environment }}
     env:
       PREVIEW_VERSION: null
+      VERSION_MAJOR: ${{ secrets.version-major }}
+      VERSION_MINOR: ${{ secrets.version-minor }}
+      VERSION_HOTFIX: ${{ secrets.version-hotfix }}
+      VERSION_BUILD: ${{ secrets.version-build }}
+      LAST_PREVIEW_BUILD: ${{ secrets.last-preview-build }}
     outputs:
       output1: ${{ steps.set-output.outputs.version }}
     steps:
@@ -56,7 +56,7 @@ jobs:
       - name: Set Build Version
         id: increment-build
         env:
-          VERSION_BUILD: ${{inputs.version-build}}
+          VERSION_BUILD: ${{env.VERSION_BUILD}}
         run: |
           echo ::set-output name=updated-build-version::$((VERSION_BUILD + 1))
       
@@ -80,7 +80,7 @@ jobs:
           visibility: 'private'
       
       - name: Set Environment Variable with Version
-        run: echo "PREVIEW_VERSION=v${{inputs.version-major}}.${{inputs.version-minor}}.${{inputs.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}" >> $GITHUB_ENV
+        run: echo "PREVIEW_VERSION=v${{env.VERSION_MAJOR}}.${{env.VERSION_MINOR}}.${{env.VERSION_HOTFIX}}.${{steps.increment-build.outputs.updated-build-version}}" >> $GITHUB_ENV
       
       - name: Set Output - Updated Build Number
         id: set-output
@@ -98,13 +98,13 @@ jobs:
       #   run: |
       #     sed -i "s/<version>/$VERSION/g" Microservice/appsettings.Preview.json
       #   env:
-      #     VERSION: "v${{inputs.version-major}}.${{inputs.version-minor}}.${{inputs.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
+      #     VERSION: "v${{env.VERSION_MAJOR}}.${{env.VERSION_MINOR}}.${{env.VERSION_HOTFIX}}.${{steps.increment-build.outputs.updated-build-version}}"
       
       # - name: Update environment settings - Home
       #   if: ${{ inputs.service-name == 'Home' }}
       #   run: sed -i "s/<version>/$VERSION/g" Microservice/src/environments/environment.preview.ts
       #   env:
-      #     VERSION: "v${{inputs.version-major}}.${{inputs.version-minor}}.${{inputs.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
+      #     VERSION: "v${{env.VERSION_MAJOR}}.${{env.VERSION_MINOR}}.${{env.VERSION_HOTFIX}}.${{steps.increment-build.outputs.updated-build-version}}"
       # End - Move to Deploy.yml
 
       - name: Tag commit
@@ -117,7 +117,7 @@ jobs:
     if: ${{ inputs.environment == 'staging' }}
     runs-on: ubuntu-latest
     env:
-      VERSION: v${{inputs.version-major}}.${{inputs.version-minor}}.${{inputs.version-hotfix}}.${{inputs.last-preview-build}}-stg
+      VERSION: v${{env.VERSION_MAJOR}}.${{env.VERSION_MINOR}}.${{env.VERSION_HOTFIX}}.${{env.LAST_PREVIEW_BUILD}}-stg
 
     steps:
       - name: Checkout
@@ -148,7 +148,7 @@ jobs:
     if: ${{ inputs.environment == 'production' }}
     runs-on: ubuntu-latest
     env:
-      VERSION: v${{inputs.version-major}}.${{inputs.version-minor}}.${{inputs.version-hotfix}}.${{inputs.version-build}}
+      VERSION: v${{env.VERSION_MAJOR}}.${{env.VERSION_MINOR}}.${{env.VERSION_HOTFIX}}.${{env.VERSION_BUILD}}
 
     steps:
       - name: Checkout

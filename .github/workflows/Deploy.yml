@@ -66,19 +66,14 @@ jobs:
       environment: ${{ inputs.environment }}
       repository: ${{ inputs.repository }}
       environment-file: ${{ inputs.environment-file }}
+    secrets: 
+      personal-access-token: ${{ secrets.personal-access-token }}
+      github-token: ${{ secrets.github-token }}
       version-major: ${{ secrets.version-major }}
       version-minor: ${{ secrets.version-minor }}
       version-hotfix: ${{ secrets.version-hotfix }}
       version-build: ${{ secrets.version-build }}
       last-preview-build: ${{ secrets.last-preview-build }}
-    secrets: 
-      personal-access-token: ${{ secrets.personal-access-token }}
-      github-token: ${{ secrets.github-token }}
-      # version-major: ${{ secrets.version-major }}
-      # version-minor: ${{ secrets.version-minor }}
-      # version-hotfix: ${{ secrets.version-hotfix }}
-      # version-build: ${{ secrets.version-build }}
-      # last-preview-build: ${{ secrets.last-preview-build }}
 
   deploy:
     runs-on: ubuntu-latest
