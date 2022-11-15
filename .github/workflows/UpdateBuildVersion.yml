@@ -31,7 +31,7 @@ on:
       last-preview-build:
         required: false
     outputs:
-      version-preview:
+      updated-build:
         description: "Version number for preview"
         value: ${{ jobs.update_version_preview.outputs.output1 }}
 
@@ -43,7 +43,7 @@ jobs:
     env:
       PREVIEW_VERSION: null
     outputs:
-      output1: ${{ steps.set-output.outputs.version }}
+      output1: ${{ steps.set-output.outputs.build }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -77,9 +77,9 @@ jobs:
       - name: Set Environment Variable with Version
         run: echo "PREVIEW_VERSION=v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}" >> $GITHUB_ENV
       
-      - name: Set Output - Preview Version Number
+      - name: Set Output - Updated Build Number
         id: set-output
-        run: echo "version=${{ env.PREVIEW_VERSION }}" >> $GITHUB_OUTPUT
+        run: echo "build=${{steps.increment-build.outputs.updated-build-version}}" >> $GITHUB_OUTPUT
 
       # Move to Deploy.yml
       # - name: Check file existence

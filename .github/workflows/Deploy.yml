@@ -84,6 +84,7 @@ jobs:
       ECR_REGISTRY: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
       ECR_REPOSITORY: ${{ inputs.ecr-repository }}
       IMAGE_TAG: ${{ github.sha }}
+      PREVIEW_VERSION: v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{needs.update_version.outputs.updated-build}}
 
     steps:
       - name: Checkout
@@ -109,11 +110,11 @@ jobs:
 
       - name: Update app settings
         if: steps.check_files.outputs.files_exists == 'true'
-        run: sed -i "s/<version>/${{ needs.update_version.outputs.preview-version }}/g" Microservice/appsettings.${{ env.FORMATTED_ENVIRONMENT }}.json
+        run: sed -i "s/<version>/${{ env.PREVIEW_VERSION }}/g" Microservice/appsettings.${{ env.FORMATTED_ENVIRONMENT }}.json
       
       - name: Update environment settings - Home
         if: ${{ inputs.service-name == 'Home' }}
-        run: sed -i "s/<version>/${{ needs.update_version.outputs.preview-version }}/g" Microservice/src/environments/${{ inputs.environment-file }}
+        run: sed -i "s/<version>/${{ env.PREVIEW_VERSION }}/g" Microservice/src/environments/${{ inputs.environment-file }}
 
       - name: Configure Dockerfile
         if: ${{ inputs.service-name != 'Home' }} 
