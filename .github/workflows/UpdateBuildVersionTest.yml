@@ -7,26 +7,28 @@ on:
         required: true
         type: string
     outputs:
-      updated-build-version:
-        description: "Build version"
-        value: ${{ jobs.update_version.outputs.updated-build-version }}
+      preview-version:
+        description: "Preview Build version"
+        value: ${{ jobs.update_version_preview.outputs.output1 }}
   
 jobs:
   update_version_preview:
     if: ${{ inputs.environment == 'preview' }}
     runs-on: ubuntu-latest
+    env:
+      PREVIEW_VERSION: null
     outputs:
-      updated-build-version: ${{ steps.set-version.outputs.updated-build-version }} 
+      output1: ${{ steps.set-output.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+      
+      - name: Set Environment Variable with Version
+        run: echo "PREVIEW_VERSION=v3.0.0.1" >> $GITHUB_ENV 
 
-      - name: Set Build Version
-        id: set-version
-        env:
-          VERSION_BUILD: ${{secrets.VERSION_BUILD}}
-        run: |
-          echo ::set-output name=updated-build-version::$((VERSION_BUILD + 1))
+      - name: Set Output with Environment Variable
+        id: set-output
+        run: echo "version=${{ env.PREVIEW_VERSION }}" >> $GITHUB_OUTPUT
   
   update_version_staging:
     if: ${{ inputs.environment == 'staging' }}

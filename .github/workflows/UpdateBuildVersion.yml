@@ -30,12 +30,18 @@ on:
         required: true
       last-preview-build:
         required: false
-  
+    # outputs:
+    #   version-preview:
+    #     description: "Version number for preview"
+    #     value: ${{ jobs.update_version_preview.outputs. }} #complete
+
 jobs:
   update_version_preview:
     if: ${{ inputs.environment == 'preview' }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+    # outputs:
+    #   preview-version: ${{ steps.output-preview-version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -66,6 +72,14 @@ jobs:
           token: ${{ secrets.personal-access-token }}
           visibility: 'private'
 
+      # set version from step above to a environment variable
+      # set the output from this environment variable
+
+      # - name: Output Preview Version
+      #   id: output-preview-version
+      #   run: echo "version=v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}" >> $GITHUB_OUTPUT
+
+      # Move to Deploy.yml
       - name: Check file existence
         id: check_files
         uses: andstor/file-existence-action@v1
@@ -83,8 +97,8 @@ jobs:
         if: ${{ inputs.service-name == 'Home' }}
         run: sed -i "s/<version>/$VERSION/g" Microservice/src/environments/environment.preview.ts
         env:
-          #VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
-          VERSION: "test"
+          VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
+      # End - Move to Deploy.yml
 
       - name: Tag commit
         uses: tvdias/github-tagger@v0.0.1
