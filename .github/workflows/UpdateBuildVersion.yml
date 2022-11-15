@@ -30,18 +30,20 @@ on:
         required: true
       last-preview-build:
         required: false
-    # outputs:
-    #   version-preview:
-    #     description: "Version number for preview"
-    #     value: ${{ jobs.update_version_preview.outputs. }} #complete
+    outputs:
+      version-preview:
+        description: "Version number for preview"
+        value: ${{ jobs.update_version_preview.outputs.output1 }}
 
 jobs:
   update_version_preview:
     if: ${{ inputs.environment == 'preview' }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
-    # outputs:
-    #   preview-version: ${{ steps.output-preview-version.outputs.version }}
+    env:
+      PREVIEW_VERSION: null
+    outputs:
+      output1: ${{ steps.set-output.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -71,40 +73,40 @@ jobs:
           repository: ${{ inputs.repository }}
           token: ${{ secrets.personal-access-token }}
           visibility: 'private'
-
-      # set version from step above to a environment variable
-      # set the output from this environment variable
-
-      # - name: Output Preview Version
-      #   id: output-preview-version
-      #   run: echo "version=v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}" >> $GITHUB_OUTPUT
+      
+      - name: Set Environment Variable with Version
+        run: echo "PREVIEW_VERSION=v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}" >> $GITHUB_ENV
+      
+      - name: Set Output - Preview Version Number
+        id: set-output
+        run: echo "version=${{ env.PREVIEW_VERSION }}" >> $GITHUB_OUTPUT
 
       # Move to Deploy.yml
-      - name: Check file existence
-        id: check_files
-        uses: andstor/file-existence-action@v1
-        with:
-          files: "Microservice/appsettings.Preview.json"
+      # - name: Check file existence
+      #   id: check_files
+      #   uses: andstor/file-existence-action@v1
+      #   with:
+      #     files: "Microservice/appsettings.Preview.json"
 
-      - name: Update app settings
-        if: steps.check_files.outputs.files_exists == 'true'
-        run: |
-          sed -i "s/<version>/$VERSION/g" Microservice/appsettings.Preview.json
-        env:
-          VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
+      # - name: Update app settings
+      #   if: steps.check_files.outputs.files_exists == 'true'
+      #   run: |
+      #     sed -i "s/<version>/$VERSION/g" Microservice/appsettings.Preview.json
+      #   env:
+      #     VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
       
-      - name: Update environment settings - Home
-        if: ${{ inputs.service-name == 'Home' }}
-        run: sed -i "s/<version>/$VERSION/g" Microservice/src/environments/environment.preview.ts
-        env:
-          VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
+      # - name: Update environment settings - Home
+      #   if: ${{ inputs.service-name == 'Home' }}
+      #   run: sed -i "s/<version>/$VERSION/g" Microservice/src/environments/environment.preview.ts
+      #   env:
+      #     VERSION: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
       # End - Move to Deploy.yml
 
       - name: Tag commit
         uses: tvdias/github-tagger@v0.0.1
         with:
           repo-token: "${{ secrets.github-token }}"
-          tag: "v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{steps.increment-build.outputs.updated-build-version}}"
+          tag: "${{ env.PREVIEW_VERSION }}"
 
   update_version_staging:
     if: ${{ inputs.environment == 'staging' }}

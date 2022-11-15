@@ -1,18 +1,18 @@
-name: Test Trigger
+# name: Test Trigger
 
-on:
-  pull_request:
-    types: [opened, synchronize]
+# on:
+#   pull_request:
+#     types: [opened, synchronize]
 
-jobs:
-  update_version:
-    uses: ./.github/workflows/UpdateBuildVersionTest.yml
-    with:
-      environment: preview
+# jobs:
+#   update_version:
+#     uses: ./.github/workflows/UpdateBuildVersionTest.yml
+#     with:
+#       environment: preview
   
-  job2:
-    runs-on: ubuntu-latest
-    needs: update_version
-    steps:
-      - name: Show Version Output
-        run: echo ${{ needs.update_version.outputs.preview-version }}
+#   job2:
+#     runs-on: ubuntu-latest
+#     needs: update_version
+#     steps:
+#       - name: Show Version Output
+#         run: echo ${{ needs.update_version.outputs.preview-version }}
