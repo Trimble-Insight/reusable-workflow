@@ -148,7 +148,7 @@ jobs:
     if: ${{ inputs.environment == 'production' }}
     runs-on: ubuntu-latest
     env:
-      VERSION: v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{secrets.last-preview-build}}
+      VERSION: v${{secrets.version-major}}.${{secrets.version-minor}}.${{secrets.version-hotfix}}.${{secrets.version-build}}
 
     steps:
       - name: Checkout
