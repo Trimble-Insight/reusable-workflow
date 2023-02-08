@@ -21,6 +21,10 @@ on:
         required: true
       secret-access-key:
         required: true
+      git-admin-user:
+        required: true
+      git-token:
+        required: true
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -29,8 +33,10 @@ jobs:
     - uses: actions/setup-dotnet@v1
       with:
         dotnet-version: '6.0.x' # SDK Version to use; x will use the latest version of the 3.1 channel
-    - name: build  
-      run: |
+    - name: Build
+      run: | 
+          dotnet nuget add source --username ${{ secrets.git-admin-user }} --password ${{ secrets.git-token }} --store-password-in-clear-text --name LoadriteFeed "https://nuget.pkg.github.com/Trimble-Insight/index.json"]
+          dotnet restore
           dotnet build --configuration Release
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v1
