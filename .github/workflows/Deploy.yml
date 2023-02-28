@@ -182,7 +182,7 @@ jobs:
           image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
       
       - name: Deploy ECS task definition
-        if: ${{ inputs.service-name != 'DeviceInfoSynchroniser' }}
+        if: ${{ inputs.service-name != 'DeviceInfoSynchroniser' && inputs.service-name != 'DbBackupSetupUpgrader' }}
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
@@ -190,9 +190,9 @@ jobs:
           cluster: ${{ inputs.cluster-name }}
           wait-for-service-stability: false
       
-      # Specific deployment for DeviceInfoSynchroniser
+      # Specific deployment for Scheduled Tasks
       - name: Deploy to ECS Scheduled Tasks
-        if: ${{ inputs.service-name == 'DeviceInfoSynchroniser' }}
+        if: ${{ inputs.service-name == 'DeviceInfoSynchroniser' || inputs.service-name == 'DbBackupSetupUpgrader' }}
         uses: airfordable/ecs-deploy-task-definition-to-scheduled-task@v2.0.0
         with:
           cluster: ${{ inputs.cluster-name }}
