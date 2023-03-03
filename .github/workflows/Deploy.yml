@@ -1,6 +1,6 @@
 on:
   workflow_call:
-    
+
     inputs:
       service-name:
         required: true
@@ -23,9 +23,9 @@ on:
       environment-file:
         required: false
         type: string
-    
+
     secrets:
-      aws-account-id: 
+      aws-account-id:
         required: true
       region:
         required: true
@@ -66,7 +66,7 @@ jobs:
       environment: ${{ inputs.environment }}
       repository: ${{ inputs.repository }}
       environment-file: ${{ inputs.environment-file }}
-    secrets: 
+    secrets:
       personal-access-token: ${{ secrets.personal-access-token }}
       github-token: ${{ secrets.github-token }}
       version-major: ${{ secrets.version-major }}
@@ -90,45 +90,48 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
+      - name: Set Preview Version
+        run: echo "PREVIEW_VERSION=${{ needs.update_version.outputs.preview-version }}" >> GITHUB_ENV
+
       - name: Check for Preview
         if: ${{ inputs.environment == 'preview' }}
-        run: echo "FORMATTED_ENVIRONMENT=Preview" >> $GITHUB_ENV 
-      
+        run: echo "FORMATTED_ENVIRONMENT=Preview" >> $GITHUB_ENV
+
       - name: Check for Staging
         if: ${{ inputs.environment == 'staging' }}
         run: echo "FORMATTED_ENVIRONMENT=Staging" >> $GITHUB_ENV
-      
+
       - name: Check for Production
         if: ${{ inputs.environment == 'production' }}
-        run: echo "FORMATTED_ENVIRONMENT=Production" >> $GITHUB_ENV 
-      
+        run: echo "FORMATTED_ENVIRONMENT=Production" >> $GITHUB_ENV
+
       - name: Check file existence
         id: check_files
         uses: andstor/file-existence-action@v1
         with:
           files: "Microservice/appsettings.${{ env.FORMATTED_ENVIRONMENT }}.json"
 
-       # Don't use access key Id and secret key with @
+      # Don't use access key Id and secret key with @
       - name: Update app settings
         if: steps.check_files.outputs.files_exists == 'true'
         run: |
           sed -i "s/<version>/${{ env.PREVIEW_VERSION }}/g" Microservice/appsettings.${{ env.FORMATTED_ENVIRONMENT }}.json
           sed -i "s@<accesskeyid>@${{ secrets.access-key-id }}@g" Microservice/appsettings.json
           sed -i "s@<secretaccesskey>@${{ secrets.secret-access-key }}@g" Microservice/appsettings.json
-      
+
       - name: Update environment settings - Home
         if: ${{ inputs.service-name == 'Home' }}
         run: sed -i "s/<version>/${{ env.PREVIEW_VERSION }}/g" Microservice/src/environments/${{ inputs.environment-file }}
 
       - name: Configure Dockerfile
-        if: ${{ inputs.service-name != 'Home' }} 
+        if: ${{ inputs.service-name != 'Home' }}
         run: |
           sed -i "s/<environment_name>/${{ env.FORMATTED_ENVIRONMENT }}/g" dockerfile
           sed -i "s/<git_pat>/${{ secrets.personal-access-token }}/g" dockerfile
           sed -i "s/<git_user>/${{ secrets.git-admin-user }}/g" dockerfile
-      
+
       - name: Configure API Keys & Dockerfile (Home)
-        if: ${{ inputs.service-name == 'Home' }} 
+        if: ${{ inputs.service-name == 'Home' }}
         run: |
           sed -i "s/<environment_name>/${{ inputs.environment }}/g" dockerfile
           sed -i "s/<firebase_api_key>/${{ secrets.firebase-api-key }}/g" Microservice/src/environments/${{ inputs.environment-file }}
@@ -140,19 +143,19 @@ jobs:
           sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/config.xml
           sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/android/app/src/main/assets/capacitor.config.json
           sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/ios/App/App/capacitor.config.json
-      
+
       - name: Configure Task Definition
         run: |
           sed -i "s/<aws_account_id>/${{ secrets.aws-account-id }}/g" TaskDefinitions/task-definition-${{ inputs.environment }}.json
           sed -i "s/<region>/${{ secrets.region }}/g" TaskDefinitions/task-definition-${{ inputs.environment }}.json
-      
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
           aws-access-key-id: ${{ secrets.access-key-id }}
           aws-secret-access-key: ${{ secrets.secret-access-key }}
           aws-region: ${{ secrets.region }}
-      
+
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
@@ -166,7 +169,7 @@ jobs:
           registry: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
           username: ${{ secrets.access-key-id }}
           password: ${{ secrets.secret-access-key }}
-      
+
       - name: Build, tag and push
         id: build-image
         uses: docker/build-push-action@v3
@@ -176,7 +179,7 @@ jobs:
           tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      
+
       - name: Render in the new image ID in the ECS task definition
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
@@ -184,7 +187,7 @@ jobs:
           task-definition: TaskDefinitions/task-definition-${{ inputs.environment }}.json
           container-name: ${{ inputs.service-name }}
           image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
-      
+
       - name: Deploy ECS task definition
         if: ${{ inputs.service-name != 'DeviceInfoSynchroniser' && inputs.service-name != 'DbBackupSetupUpgrader' }}
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
@@ -193,7 +196,7 @@ jobs:
           service: ${{ inputs.service-name }}
           cluster: ${{ inputs.cluster-name }}
           wait-for-service-stability: false
-      
+
       # Specific deployment for Scheduled Tasks
       - name: Deploy to ECS Scheduled Tasks
         if: ${{ inputs.service-name == 'DeviceInfoSynchroniser' || inputs.service-name == 'DbBackupSetupUpgrader' }}
@@ -202,7 +205,7 @@ jobs:
           cluster: ${{ inputs.cluster-name }}
           rule-prefix: ${{ inputs.rule-prefix }}
           task-definition: ${{ steps.task-def.outputs.task-definition }}
-      
+
       # Specific for Gateway
       - name: run postman scripts
         if: ${{ inputs.service-name == 'Gateway' }}
