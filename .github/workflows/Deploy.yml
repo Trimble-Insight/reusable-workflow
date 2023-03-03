@@ -108,6 +108,7 @@ jobs:
         with:
           files: "Microservice/appsettings.${{ env.FORMATTED_ENVIRONMENT }}.json"
 
+       # Don't use access key Id and secret key with @
       - name: Update app settings
         if: steps.check_files.outputs.files_exists == 'true'
         run: |
