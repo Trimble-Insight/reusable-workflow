@@ -6,7 +6,7 @@ on:
       service-name:
         required: false
         type: string
-      environment: 
+      environment:
         required: true
         type: string
       repository:
@@ -59,7 +59,7 @@ jobs:
           VERSION_BUILD: ${{env.VERSION_BUILD}}
         run: |
           echo ::set-output name=updated-build-version::$((VERSION_BUILD + 1))
-      
+
       - name : Increment build version - VERSION_BUILD
         uses: hmanzur/actions-set-secret@v2.0.0
         with:
@@ -69,7 +69,7 @@ jobs:
           token: ${{ secrets.personal-access-token }}
           org: true
           visibility: 'private'
-      
+
       - name : Increment build version - LAST_PREVIEW_BUILD
         uses: hmanzur/actions-set-secret@v2.0.0
         with:
@@ -78,34 +78,13 @@ jobs:
           repository: ${{ inputs.repository }}
           token: ${{ secrets.personal-access-token }}
           visibility: 'private'
-      
+
       - name: Set Environment Variable with Version
         run: echo "PREVIEW_VERSION=v${{env.VERSION_MAJOR}}.${{env.VERSION_MINOR}}.${{env.VERSION_HOTFIX}}.${{steps.increment-build.outputs.updated-build-version}}" >> $GITHUB_ENV
-      
+
       - name: Set Output - Updated Build Number
         id: set-output
         run: echo "version=${{ env.PREVIEW_VERSION }}" >> $GITHUB_OUTPUT
-
-      # Move to Deploy.yml
-      # - name: Check file existence
-      #   id: check_files
-      #   uses: andstor/file-existence-action@v1
-      #   with:
-      #     files: "Microservice/appsettings.Preview.json"
-
-      # - name: Update app settings
-      #   if: steps.check_files.outputs.files_exists == 'true'
-      #   run: |
-      #     sed -i "s/<version>/$VERSION/g" Microservice/appsettings.Preview.json
-      #   env:
-      #     VERSION: "v${{env.VERSION_MAJOR}}.${{env.VERSION_MINOR}}.${{env.VERSION_HOTFIX}}.${{steps.increment-build.outputs.updated-build-version}}"
-      
-      # - name: Update environment settings - Home
-      #   if: ${{ inputs.service-name == 'Home' }}
-      #   run: sed -i "s/<version>/$VERSION/g" Microservice/src/environments/environment.preview.ts
-      #   env:
-      #     VERSION: "v${{env.VERSION_MAJOR}}.${{env.VERSION_MINOR}}.${{env.VERSION_HOTFIX}}.${{steps.increment-build.outputs.updated-build-version}}"
-      # End - Move to Deploy.yml
 
       - name: Tag commit
         uses: tvdias/github-tagger@v0.0.1
@@ -122,7 +101,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      
+
       - name: Check file existence
         id: check_files
         uses: andstor/file-existence-action@v1
@@ -133,7 +112,7 @@ jobs:
         if: steps.check_files.outputs.files_exists == 'true'
         run: |
           sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/appsettings.Staging.json
-      
+
       - name: Update environment settings - Home
         if: ${{ inputs.service-name == 'Home' }}
         run: sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/src/environments/environment.staging.ts
@@ -143,7 +122,7 @@ jobs:
         with:
           repo-token: "${{ secrets.github-token }}"
           tag: ${{ env.VERSION }}
-  
+
   update_version_production:
     if: ${{ inputs.environment == 'production' }}
     runs-on: ubuntu-latest
@@ -153,7 +132,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      
+
       - name: Check file existence
         id: check_files
         uses: andstor/file-existence-action@v1
@@ -166,9 +145,9 @@ jobs:
           sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/appsettings.Production.json
 
       - name: Update environment settings - Home
-        if: ${{ inputs.service-name == 'Home' }} 
+        if: ${{ inputs.service-name == 'Home' }}
         run: sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/src/environments/environment.prod.ts
-      
+
       - name: Tag commit
         uses: tvdias/github-tagger@v0.0.1
         with:
