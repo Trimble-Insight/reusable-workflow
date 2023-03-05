@@ -90,9 +90,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Set Preview Version
-        run: echo "PREVIEW_VERSION=${{ needs.update_version.outputs.preview-version }}" >> $GITHUB_ENV
-
       - name: Check for Preview
         if: ${{ inputs.environment == 'preview' }}
         run: echo "FORMATTED_ENVIRONMENT=Preview" >> $GITHUB_ENV
