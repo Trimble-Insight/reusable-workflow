@@ -114,11 +114,11 @@ jobs:
           echo $value
           echo "VERSION=$value" >> $GITHUB_ENV
 
-      - name: Check file existence
-        id: check_files
-        uses: andstor/file-existence-action@v1
-        with:
-          files: "Microservice/appsettings.${{ env.FORMATTED_ENVIRONMENT }}.json"
+#       - name: Check file existence
+#         id: check_files
+#         uses: andstor/file-existence-action@v1
+#         with:
+#           files: "Microservice/appsettings.${{ env.FORMATTED_ENVIRONMENT }}.json"
 
       # Don't use access key Id and secret key with @
       - name: Update app settings
