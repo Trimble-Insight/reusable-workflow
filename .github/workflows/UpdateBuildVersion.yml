@@ -82,6 +82,9 @@ jobs:
       - name: Set Environment Variable with Version
         run: echo "PREVIEW_VERSION=v${{env.VERSION_MAJOR}}.${{env.VERSION_MINOR}}.${{env.VERSION_HOTFIX}}.${{steps.increment-build.outputs.updated-build-version}}" >> $GITHUB_ENV
 
+      - name: Show PREVIEW_VERSION
+        run: echo "${{ env.PREVIEW_VERSION }}"
+
       - name: Set Output - Updated Build Number
         id: set-output
         run: echo "version=${{ env.PREVIEW_VERSION }}" >> $GITHUB_OUTPUT
