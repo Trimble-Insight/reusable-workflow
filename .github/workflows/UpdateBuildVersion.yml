@@ -30,10 +30,6 @@ on:
         required: true
       last-preview-build:
         required: false
-    outputs:
-      preview-version:
-        description: "Version number for preview"
-        value: ${{ jobs.update_version_preview.outputs.output1 }}
 
 jobs:
   update_version_preview:
@@ -41,14 +37,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     env:
-      PREVIEW_VERSION: null
+      VERSION: null
       VERSION_MAJOR: ${{ secrets.version-major }}
       VERSION_MINOR: ${{ secrets.version-minor }}
       VERSION_HOTFIX: ${{ secrets.version-hotfix }}
       VERSION_BUILD: ${{ secrets.version-build }}
       LAST_PREVIEW_BUILD: ${{ secrets.last-preview-build }}
-    outputs:
-      output1: ${{ steps.set-output.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -80,27 +74,23 @@ jobs:
           visibility: 'private'
 
       - name: Set environment variable with version
-        run: echo "PREVIEW_VERSION=v${{env.VERSION_MAJOR}}.${{env.VERSION_MINOR}}.${{env.VERSION_HOTFIX}}.${{steps.increment-build.outputs.updated-build-version}}" >> $GITHUB_ENV
+        run: echo "VERSION=v${{env.VERSION_MAJOR}}.${{env.VERSION_MINOR}}.${{env.VERSION_HOTFIX}}.${{steps.increment-build.outputs.updated-build-version}}" >> $GITHUB_ENV
 
-      - name: Set output - updated build number
-        id: set-output
-        run: echo "version=${{ env.PREVIEW_VERSION }}" >> $GITHUB_OUTPUT
-
-      - name: Set updated build number to artifact
+      - name: Set updated build number to file
         shell: bash
-        run: expr ${{ env.PREVIEW_VERSION }} > preview-version.txt
+        run: expr ${{ env.VERSION }} > version.txt
 
-      - name: Upload preview version artifact
+      - name: Upload version artifact
         uses: actions/upload-artifact@v3
         with:
           name: version
-          path: preview-version.txt
+          path: version.txt
 
       - name: Tag commit
         uses: tvdias/github-tagger@v0.0.1
         with:
           repo-token: "${{ secrets.github-token }}"
-          tag: "${{ env.PREVIEW_VERSION }}"
+          tag: "${{ env.VERSION }}"
 
   update_version_staging:
     if: ${{ inputs.environment == 'staging' }}
@@ -112,20 +102,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Check file existence
-        id: check_files
-        uses: andstor/file-existence-action@v1
+      - name: Set updated build number to file
+        shell: bash
+        run: expr ${{ env.VERSION }} > version.txt
+
+      - name: Upload version artifact
+        uses: actions/upload-artifact@v3
         with:
-          files: "Microservice/appsettings.Staging.json"
-
-      - name: Update app settings
-        if: steps.check_files.outputs.files_exists == 'true'
-        run: |
-          sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/appsettings.Staging.json
-
-      - name: Update environment settings - Home
-        if: ${{ inputs.service-name == 'Home' }}
-        run: sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/src/environments/environment.staging.ts
+          name: version
+          path: version.txt
 
       - name: Tag commit
         uses: tvdias/github-tagger@v0.0.1
@@ -143,20 +128,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Check file existence
-        id: check_files
-        uses: andstor/file-existence-action@v1
+     - name: Set updated build number to file
+        shell: bash
+        run: expr ${{ env.VERSION }} > version.txt
+
+      - name: Upload version artifact
+        uses: actions/upload-artifact@v3
         with:
-          files: "Microservice/appsettings.Production.json"
-
-      - name: Update app settings
-        if: steps.check_files.outputs.files_exists == 'true'
-        run: |
-          sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/appsettings.Production.json
-
-      - name: Update environment settings - Home
-        if: ${{ inputs.service-name == 'Home' }}
-        run: sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/src/environments/environment.prod.ts
+          name: version
+          path: version.txt
 
       - name: Tag commit
         uses: tvdias/github-tagger@v0.0.1
