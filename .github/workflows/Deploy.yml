@@ -60,8 +60,7 @@ on:
 
 jobs:
   update_version:
-    # uses: ./.github/workflows/UpdateBuildVersion.yml
-    uses: Trimble-Insight/reusable-workflow/.github/workflows/UpdateBuildVersion.yml@main
+    uses: ./.github/workflows/UpdateBuildVersion.yml
     with:
       service-name: ${{ inputs.service-name }}
       environment: ${{ inputs.environment }}
