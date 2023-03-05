@@ -128,7 +128,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-     - name: Set updated build number to file
+      - name: Set updated build number to file
         shell: bash
         run: expr ${{ env.VERSION }} > version.txt
 
