@@ -23,6 +23,9 @@ on:
       environment-file:
         required: false
         type: string
+      is-scheduled-task:
+        required: false
+        type: boolean
 
     secrets:
       aws-account-id:
@@ -198,7 +201,7 @@ jobs:
           image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
 
       - name: Deploy ECS task definition
-        if: ${{ inputs.service-name != 'DeviceInfoSynchroniser' && inputs.service-name != 'DbArchiver' && inputs.service-name != 'AnalysisDataScrapper' }}
+        if: ${{ inputs.is-scheduled-task == false || inputs.is-scheduled-task == '' || inputs.is-scheduled-task == null  }}
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
@@ -208,7 +211,7 @@ jobs:
 
       # Specific deployment for Scheduled Tasks
       - name: Deploy to ECS Scheduled Tasks
-        if: ${{ inputs.service-name == 'DeviceInfoSynchroniser' || inputs.service-name == 'DbArchiver' || inputs.service-name == 'AnalysisDataScrapper'}}
+        if: ${{ inputs.is-scheduled-task == true  }}
         uses: airfordable/ecs-deploy-task-definition-to-scheduled-task@v2.0.0
         with:
           cluster: ${{ inputs.cluster-name }}
