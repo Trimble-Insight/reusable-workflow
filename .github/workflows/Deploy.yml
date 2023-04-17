@@ -162,7 +162,7 @@ jobs:
           sed -i "s/<region>/${{ secrets.region }}/g" TaskDefinitions/task-definition-${{ inputs.environment }}.json
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.access-key-id }}
           aws-secret-access-key: ${{ secrets.secret-access-key }}

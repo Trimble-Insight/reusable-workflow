@@ -1,7 +1,7 @@
 on:
   workflow_call:
     inputs:
-      environment: 
+      environment:
         required: true
         type: string
       path:
@@ -33,7 +33,7 @@ on:
         type: string
 
     secrets:
-      aws-account-id: 
+      aws-account-id:
         required: true
       region:
         required: true
@@ -47,7 +47,7 @@ on:
         required: false
       insighthq-identity-hostname:
         required: false
-      
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -55,9 +55,9 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v3
-      
+
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.access-key-id }}
           aws-secret-access-key: ${{ secrets.secret-access-key }}
@@ -70,27 +70,27 @@ jobs:
       - name: Set Domain Name
         if: ${{ inputs.lambda == 'CustomMessage' }}
         run: sed -i "s/<domain_name>/${{ inputs.domain }}/g" ${{ inputs.function-path }}
-      
+
       - name: Set S3 Bucket
         if: ${{ inputs.lambda == 'CustomMessage' }}
         run: sed -i "s/<bucket_name>/${{ inputs.bucket }}/g" ${{ inputs.function-path }}
-      
+
       - name: Set Email Sender
         if: ${{ inputs.lambda == 'PostConfirmation' }}
         run: sed -i "s/<source>/${{ inputs.source }}/g" ${{ inputs.function-path }}
-      
+
       - name: Set forgot password link
         if: ${{ inputs.lambda == 'PostConfirmation' }}
         run: sed -i "s_<forgotpassword>_${{ inputs.forgot-password-link }}_" ${{ inputs.function-path }}
-      
+
       - name: Set Identity Username
         if: ${{ inputs.lambda == 'PreToken' }}
         run: sed -i "s/<USERNAME>/${{ secrets.insighthq-identity-username }}/g" ${{ inputs.function-path }}
-      
+
       - name: Set Identity Password
         if: ${{ inputs.lambda == 'PreToken' }}
         run: sed -i "s/<PASSWORD>/${{ secrets.insighthq-identity-password }}/g" ${{ inputs.function-path }}
-      
+
       - name: Set Hostname
         if: ${{ inputs.lambda == 'PreToken' }}
         run: sed -i "s/<HOSTNAME>/${{ secrets.insighthq-identity-hostname }}/g" ${{ inputs.function-path }}
@@ -115,5 +115,5 @@ jobs:
           IMAGE_URI: ${{ steps.build-image.outputs.image }}
         run: |
           aws lambda update-function-code --function-name arn:aws:lambda:${{ secrets.region }}:${{ secrets.aws-account-id }}:function:${{ inputs.function-name }} --image-uri $IMAGE_URI
-      
+
 

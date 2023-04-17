@@ -51,11 +51,10 @@ jobs:
         id: increment-build
         env:
           VERSION_BUILD: ${{env.VERSION_BUILD}}
-        run: |
-          echo ::set-output name=updated-build-version::$((VERSION_BUILD + 1))
+        run: echo "updated-build-version=$((VERSION_BUILD + 1))" >> $GITHUB_OUTPUT
 
       - name : Increment build version - VERSION_BUILD
-        uses: hmanzur/actions-set-secret@v2.0.0
+        uses: abhishekpaul/actions-set-secret@v1.0.3
         with:
           name: 'VERSION_BUILD'
           value: ${{ steps.increment-build.outputs.updated-build-version }}
@@ -65,12 +64,13 @@ jobs:
           visibility: 'private'
 
       - name : Increment build version - LAST_PREVIEW_BUILD
-        uses: hmanzur/actions-set-secret@v2.0.0
+        uses: abhishekpaul/actions-set-secret@v1.0.3
         with:
           name: 'LAST_PREVIEW_BUILD'
           value: ${{ steps.increment-build.outputs.updated-build-version }}
-          repository: ${{ inputs.repository }}
+          repository: 'Trimble-Insight'
           token: ${{ secrets.personal-access-token }}
+          org: true
           visibility: 'private'
 
       - name: Set environment variable with version
@@ -87,9 +87,9 @@ jobs:
           path: version.txt
 
       - name: Tag commit
-        uses: tvdias/github-tagger@v0.0.1
+        uses: rickstaa/action-create-tag@v1.6.1
         with:
-          repo-token: "${{ secrets.github-token }}"
+          github_token: "${{ secrets.github-token }}"
           tag: "${{ env.VERSION }}"
 
   update_version_staging:
@@ -113,9 +113,9 @@ jobs:
           path: version.txt
 
       - name: Tag commit
-        uses: tvdias/github-tagger@v0.0.1
+        uses: rickstaa/action-create-tag@v1.6.1
         with:
-          repo-token: "${{ secrets.github-token }}"
+          github_token: "${{ secrets.github-token }}"
           tag: ${{ env.VERSION }}
 
   update_version_production:
@@ -139,7 +139,7 @@ jobs:
           path: version.txt
 
       - name: Tag commit
-        uses: tvdias/github-tagger@v0.0.1
+        uses: rickstaa/action-create-tag@v1.6.1
         with:
-          repo-token: "${{ secrets.github-token }}"
+          github_token: "${{ secrets.github-token }}"
           tag: "${{ env.VERSION }}"
