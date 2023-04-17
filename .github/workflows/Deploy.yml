@@ -119,7 +119,7 @@ jobs:
 
       - name: Check file existence
         id: check_files
-        uses: andstor/file-existence-action@v1
+        uses: andstor/file-existence-action@v2.0.0
         with:
           files: "Microservice/appsettings.${{ env.FORMATTED_ENVIRONMENT }}.json"
 
