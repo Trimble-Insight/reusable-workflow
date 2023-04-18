@@ -226,3 +226,10 @@ jobs:
           collection: "ApiRequests/Collections/Insight-ApiGateway-Monitor.postman_collection.json"
           environment: "ApiRequests/Environments/Insight-APIGateway-Monitor [${{ inputs.environment }}].postman_environment.json"
           reporters: "cli"
+          iterationCount: 1
+          insecureFileRead: true
+          delayRequest: 10
+          insecure: false
+          bail: false
+          suppressExitCode: false
+          color: "auto"
