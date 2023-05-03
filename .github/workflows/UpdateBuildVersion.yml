@@ -53,8 +53,8 @@ jobs:
           VERSION_BUILD: ${{env.VERSION_BUILD}}
         run: echo "updated-build-version=$((VERSION_BUILD + 1))" >> $GITHUB_OUTPUT
 
-      - name : Increment build version - VERSION_BUILD
-        uses: abhishekpaul/actions-set-secret@v1.0.3
+      - name : Increment VERSION_BUILD
+        uses: hmanzur/actions-set-secret@v2.0.0
         with:
           name: 'VERSION_BUILD'
           value: ${{ steps.increment-build.outputs.updated-build-version }}
@@ -63,14 +63,13 @@ jobs:
           org: true
           visibility: 'private'
 
-      - name : Increment build version - LAST_PREVIEW_BUILD
-        uses: abhishekpaul/actions-set-secret@v1.0.3
+      - name : Set LAST_PREVIEW_BUILD
+        uses: hmanzur/actions-set-secret@v2.0.0
         with:
           name: 'LAST_PREVIEW_BUILD'
           value: ${{ steps.increment-build.outputs.updated-build-version }}
-          repository: 'Trimble-Insight'
+          repository: ${{ inputs.repository }}
           token: ${{ secrets.personal-access-token }}
-          org: true
           visibility: 'private'
 
       - name: Set environment variable with version
