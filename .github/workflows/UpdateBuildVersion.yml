@@ -75,15 +75,6 @@ jobs:
       - name: Set environment variable with version
         run: echo "VERSION=v${{env.VERSION_MAJOR}}.${{env.VERSION_MINOR}}.${{env.VERSION_HOTFIX}}.${{steps.increment-build.outputs.updated-build-version}}" >> $GITHUB_ENV
 
-      - name : Set PRODUCTION_VERSION variable
-        uses: mmoyaferrer/set-github-variable@v1.0.0
-        with:
-            name: 'PRODUCTION_VERSION'
-            value: ${{ env.VERSION }}
-            repository: Trimble-Insight
-            org: true
-            token: ${{ secrets.personal-access-token }}
-
       - name: Set updated build number to file
         shell: bash
         run: expr ${{ env.VERSION }} > version.txt
