@@ -10,7 +10,7 @@ on:
       preview-version:
         description: "Preview Build version"
         value: ${{ jobs.update_version_preview.outputs.output1 }}
-  
+
 jobs:
   update_version_preview:
     if: ${{ inputs.environment == 'preview' }}
@@ -21,15 +21,15 @@ jobs:
       output1: ${{ steps.set-output.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
-      
+        uses: actions/checkout@v4
+
       - name: Set Environment Variable with Version
-        run: echo "PREVIEW_VERSION=v3.0.0.1" >> $GITHUB_ENV 
+        run: echo "PREVIEW_VERSION=v3.0.0.1" >> $GITHUB_ENV
 
       - name: Set Output with Environment Variable
         id: set-output
         run: echo "version=${{ env.PREVIEW_VERSION }}" >> $GITHUB_OUTPUT
-  
+
   update_version_staging:
     if: ${{ inputs.environment == 'staging' }}
     runs-on: ubuntu-latest

@@ -45,7 +45,7 @@ jobs:
       LAST_PREVIEW_BUILD: ${{ secrets.last-preview-build }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set build version
         id: increment-build
@@ -99,7 +99,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set updated build number to file
         shell: bash
@@ -125,7 +125,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set updated build number to file
         shell: bash
