@@ -54,7 +54,7 @@ jobs:
         run: echo "updated-build-version=$((VERSION_BUILD + 1))" >> $GITHUB_OUTPUT
 
       - name : Increment VERSION_BUILD
-        uses: hmanzur/actions-set-secret@v2.0.0
+        uses: action-pack/set-secret@v1
         with:
           name: 'VERSION_BUILD'
           value: ${{ steps.increment-build.outputs.updated-build-version }}
@@ -64,7 +64,7 @@ jobs:
           visibility: 'private'
 
       - name : Set LAST_PREVIEW_BUILD
-        uses: hmanzur/actions-set-secret@v2.0.0
+        uses: action-pack/set-secret@v1
         with:
           name: 'LAST_PREVIEW_BUILD'
           value: ${{ steps.increment-build.outputs.updated-build-version }}
