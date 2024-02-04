@@ -224,7 +224,7 @@ jobs:
       # Specific for Gateway
       - name: run postman scripts
         if: ${{ inputs.service-name == 'Gateway' }}
-        uses: matt-ball/newman-action@v2
+        uses: matt-ball/newman-action@master
         with:
           collection: "ApiRequests/Collections/Insight-ApiGateway-Monitor.postman_collection.json"
           environment: "ApiRequests/Environments/Insight-APIGateway-Monitor [${{ inputs.environment }}].postman_environment.json"
