@@ -115,7 +115,20 @@ jobs:
         run: |
           value=`cat version.txt`
           echo $value
-          echo "VERSION=$value" >> $GITHUB_ENV
+          echo "VERSION=$value" >> $GITHUB_ENV'
+
+      - name: Check file existence
+        id: check_config_files
+        uses: andstor/file-existence-action@v2.0.0
+        with:
+          files: "Microservice/app/config.json"
+
+      # Don't use access key Id and secret key with @
+      - name: Update AWS credentials in config file
+        if: steps.check_config_files.outputs.files_exists == 'true'
+        run: |
+          sed -i "s@<accesskeyid>@${{ secrets.access-key-id }}@g" Microservice/app/config.json
+          sed -i "s@<secretaccesskey>@${{ secrets.secret-access-key }}@g" Microservice/app/config.json
 
       - name: Check file existence
         id: check_files
