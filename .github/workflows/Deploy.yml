@@ -134,6 +134,17 @@ jobs:
       - name: Update environment settings - Home
         if: ${{ inputs.service-name == 'Home' }}
         run: sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/src/environments/${{ inputs.environment-file }}
+        
+      - name: Check file existence of package registry
+        id: check_package_registry_file
+        uses: andstor/file-existence-action@v2.0.0
+        with:
+          files: "Microservice/.npmrc" 
+      
+      - name: Update .npmrc file
+        if: steps.check_package_registry_file == 'true'
+        run: |
+          sed -i "s/<git_pat>/${{ secrets.personal-access-token }}/g" Microservice/.npmrc
 
       - name: Configure Dockerfile
         if: ${{ inputs.service-name != 'Home' }}
