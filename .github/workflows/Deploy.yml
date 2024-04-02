@@ -115,7 +115,7 @@ jobs:
         run: |
           value=`cat version.txt`
           echo $value
-          echo "VERSION=$value" >> $GITHUB_ENV'
+          echo "VERSION=$value" >> $GITHUB_ENV
 
       - name: Check file existence
         id: check_config_files
