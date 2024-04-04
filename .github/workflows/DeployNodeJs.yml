@@ -132,10 +132,10 @@ jobs:
         
       - name: Check file existence of package registry
         id: check_package_registry_file
-        uses: andstor/file-existence-action@v3
+        uses: andstor/file-existence-action@v2.0.0
         with:
           files: "Microservice/.npmrc" 
-      
+
       - name: Update .npmrc file
         if: steps.check_package_registry_file == 'true'
         run: |
