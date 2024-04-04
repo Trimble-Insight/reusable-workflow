@@ -128,22 +128,12 @@ jobs:
         if: steps.check_config_files.outputs.files_exists == 'true'
         run: |
           sed -i "s@<accesskeyid>@${{ secrets.access-key-id }}@g" Microservice/app/config/config.${{inputs.environment}}.json
-          sed -i "s@<secretaccesskey>@${{ secrets.secret-access-key }}@g" Microservice/app/config/config.${{inputs.environment}}.json      
-        
-      - name: Check file existence of package registry
-        id: check_package_registry_file
-        uses: andstor/file-existence-action@v2.0.0
-        with:
-          files: "Microservice/.npmrc" 
-
-      - name: Update .npmrc file
-        if: steps.check_package_registry_file == 'true'
-        run: |
-          sed -i "s/<git_pat>/${{ secrets.personal-access-token }}/g" Microservice/.npmrc
+          sed -i "s@<secretaccesskey>@${{ secrets.secret-access-key }}@g" Microservice/app/config/config.${{inputs.environment}}.json  
 
       - name: Configure Dockerfile
         run: |
           sed -i "s/<environment_name>/${{inputs.environment}}/g" dockerfile
+          sed -i "s/<git_pat>/${{ secrets.personal-access-token }}/g" dockerfile
 
       - name: Configure Task Definition
         run: |
