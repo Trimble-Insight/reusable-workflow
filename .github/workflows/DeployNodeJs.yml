@@ -121,41 +121,29 @@ jobs:
         id: check_files
         uses: andstor/file-existence-action@v3
         with:
-          files: "Microservice/appsettings.${{ env.FORMATTED_ENVIRONMENT }}.json"
+          files: "Microservice/app/config/config.${{inputs.environment}}.json"
 
       # Don't use access key Id and secret key with @
-      - name: Update app settings
-        if: steps.check_files.outputs.files_exists == 'true'
+      - name: Update AWS credentials in config file
+        if: steps.check_config_files.outputs.files_exists == 'true'
         run: |
-          sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/appsettings.${{ env.FORMATTED_ENVIRONMENT }}.json
-          sed -i "s@<accesskeyid>@${{ secrets.access-key-id }}@g" Microservice/appsettings.json
-          sed -i "s@<secretaccesskey>@${{ secrets.secret-access-key }}@g" Microservice/appsettings.json
-          sed -i "s@<github_pat>@${{ secrets.personal-access-token }}@g" Microservice/appsettings.json
-
-      - name: Update environment settings - Home
-        if: ${{ inputs.service-name == 'Home' }}
-        run: sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/src/environments/${{ inputs.environment-file }}
+          sed -i "s@<accesskeyid>@${{ secrets.access-key-id }}@g" Microservice/app/config/config.${{inputs.environment}}.json
+          sed -i "s@<secretaccesskey>@${{ secrets.secret-access-key }}@g" Microservice/app/config/config.${{inputs.environment}}.json      
+        
+      - name: Check file existence of package registry
+        id: check_package_registry_file
+        uses: andstor/file-existence-action@v3
+        with:
+          files: "Microservice/.npmrc" 
+      
+      - name: Update .npmrc file
+        if: steps.check_package_registry_file == 'true'
+        run: |
+          sed -i "s/<git_pat>/${{ secrets.personal-access-token }}/g" Microservice/.npmrc
 
       - name: Configure Dockerfile
-        if: ${{ inputs.service-name != 'Home' }}
         run: |
-          sed -i "s/<environment_name>/${{ env.FORMATTED_ENVIRONMENT }}/g" dockerfile
-          sed -i "s/<git_pat>/${{ secrets.personal-access-token }}/g" dockerfile
-          sed -i "s/<git_user>/${{ secrets.git-admin-user }}/g" dockerfile
-
-      - name: Configure API Keys & Dockerfile (Home)
-        if: ${{ inputs.service-name == 'Home' }}
-        run: |
-          sed -i "s/<environment_name>/${{ inputs.environment }}/g" dockerfile
-          sed -i "s/<firebase_api_key>/${{ secrets.firebase-api-key }}/g" Microservice/src/environments/${{ inputs.environment-file }}
-          sed -i "s/<google_api_key>/${{ secrets.google-api-key }}/g" Microservice/android/app/google-services-${{ inputs.environment }}.json
-          sed -i "s/<google_ios_api_key>/${{ secrets.google-ios-api-key }}/g" Microservice/ios/App/App/GoogleService-Info-${{ inputs.environment }}.plist
-          sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/src/environments/${{ inputs.environment-file }}
-          sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/src/index.html
-          sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/capacitor.config.json
-          sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/config.xml
-          sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/android/app/src/main/assets/capacitor.config.json
-          sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/ios/App/App/capacitor.config.json
+          sed -i "s/<environment_name>/${{inputs.environment}}/g" dockerfile
 
       - name: Configure Task Definition
         run: |
@@ -220,11 +208,3 @@ jobs:
           cluster: ${{ inputs.cluster-name }}
           rule-prefix: ${{ inputs.rule-prefix }}
           task-definition: ${{ steps.task-def.outputs.task-definition }}
-
-      # Specific for Gateway
-      - name: run postman scripts
-        if: ${{ inputs.service-name == 'Gateway' }}
-        uses: matt-ball/newman-action@master
-        with:
-          collection: "ApiRequests/Collections/Insight-ApiGateway-Monitor.postman_collection.json"
-          environment: "ApiRequests/Environments/Insight-APIGateway-Monitor [${{ inputs.environment }}].postman_environment.json"
