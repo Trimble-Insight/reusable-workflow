@@ -91,7 +91,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Check for Preview
         if: ${{ inputs.environment == 'preview' }}
@@ -106,7 +106,7 @@ jobs:
         run: echo "FORMATTED_ENVIRONMENT=Production" >> $GITHUB_ENV
 
       - name: Download version artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: version
 
@@ -118,21 +118,21 @@ jobs:
           echo "VERSION=$value" >> $GITHUB_ENV
 
       - name: Check file existence
-        id: check_config_files
-        uses: andstor/file-existence-action@v2.0.0
+        id: check_files
+        uses: andstor/file-existence-action@v3
         with:
-          files: "Microservice/app/config/config.${{ lower(env.FORMATTED_ENVIRONMENT)}}.json"
+          files: "Microservice/app/config/config.${{inputs.environment}}.json"
 
       # Don't use access key Id and secret key with @
       - name: Update AWS credentials in config file
         if: steps.check_config_files.outputs.files_exists == 'true'
         run: |
-          sed -i "s@<accesskeyid>@${{ secrets.access-key-id }}@g" Microservice/app/config/config.${{ lower(env.FORMATTED_ENVIRONMENT)}}.json
-          sed -i "s@<secretaccesskey>@${{ secrets.secret-access-key }}@g" Microservice/app/config/config.${{ lower(env.FORMATTED_ENVIRONMENT)}}.json      
+          sed -i "s@<accesskeyid>@${{ secrets.access-key-id }}@g" Microservice/app/config/config.${{inputs.environment}}.json
+          sed -i "s@<secretaccesskey>@${{ secrets.secret-access-key }}@g" Microservice/app/config/config.${{inputs.environment}}.json      
         
       - name: Check file existence of package registry
         id: check_package_registry_file
-        uses: andstor/file-existence-action@v2.0.0
+        uses: andstor/file-existence-action@v3
         with:
           files: "Microservice/.npmrc" 
       
@@ -143,7 +143,7 @@ jobs:
 
       - name: Configure Dockerfile
         run: |
-          sed -i "s/<environment_name>/${{ lower(inputs.environment) }}/g" dockerfile
+          sed -i "s/<environment_name>/${{inputs.environment}}/g" dockerfile
 
       - name: Configure Task Definition
         run: |
@@ -151,7 +151,7 @@ jobs:
           sed -i "s/<region>/${{ secrets.region }}/g" TaskDefinitions/task-definition-${{ inputs.environment }}.json
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.access-key-id }}
           aws-secret-access-key: ${{ secrets.secret-access-key }}
@@ -159,15 +159,15 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@v2
         with:
           mask-password: 'true'
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to ECR
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
           username: ${{ secrets.access-key-id }}
@@ -175,7 +175,7 @@ jobs:
 
       - name: Build, tag and push
         id: build-image
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v5
         with:
           context: .
           push: true

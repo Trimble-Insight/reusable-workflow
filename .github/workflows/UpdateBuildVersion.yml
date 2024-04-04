@@ -45,7 +45,7 @@ jobs:
       LAST_PREVIEW_BUILD: ${{ secrets.last-preview-build }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set build version
         id: increment-build
@@ -54,7 +54,7 @@ jobs:
         run: echo "updated-build-version=$((VERSION_BUILD + 1))" >> $GITHUB_OUTPUT
 
       - name : Increment VERSION_BUILD
-        uses: hmanzur/actions-set-secret@v2.0.0
+        uses: action-pack/set-secret@v1
         with:
           name: 'VERSION_BUILD'
           value: ${{ steps.increment-build.outputs.updated-build-version }}
@@ -64,7 +64,7 @@ jobs:
           visibility: 'private'
 
       - name : Set LAST_PREVIEW_BUILD
-        uses: hmanzur/actions-set-secret@v2.0.0
+        uses: action-pack/set-secret@v1
         with:
           name: 'LAST_PREVIEW_BUILD'
           value: ${{ steps.increment-build.outputs.updated-build-version }}
@@ -80,7 +80,7 @@ jobs:
         run: expr ${{ env.VERSION }} > version.txt
 
       - name: Upload version artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: version
           path: version.txt
@@ -99,14 +99,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set updated build number to file
         shell: bash
         run: expr ${{ env.VERSION }} > version.txt
 
       - name: Upload version artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: version
           path: version.txt
@@ -125,14 +125,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set updated build number to file
         shell: bash
         run: expr ${{ env.VERSION }} > version.txt
 
       - name: Upload version artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: version
           path: version.txt
