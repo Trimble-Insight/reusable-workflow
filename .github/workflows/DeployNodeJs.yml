@@ -118,7 +118,7 @@ jobs:
           echo "VERSION=$value" >> $GITHUB_ENV
 
       - name: Check file existence
-        id: check_files
+        id: check_config_files
         uses: andstor/file-existence-action@v3
         with:
           files: "Microservice/app/config/config.${{inputs.environment}}.json"
