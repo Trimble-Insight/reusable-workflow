@@ -127,8 +127,8 @@ jobs:
       - name: Update AWS credentials in config file
         if: steps.check_config_files.outputs.files_exists == 'true'
         run: |
-          sed -i "s@<accesskeyid>@${{ secrets.access-key-id }}@g" Microservice/app/config/config.${{inputs.environment}}.json
-          sed -i "s@<secretaccesskey>@${{ secrets.secret-access-key }}@g" Microservice/app/config/config.${{inputs.environment}}.json  
+          sed -i "s@<AccessKeyId>@${{ secrets.access-key-id }}@g" Microservice/app/config/config.${{inputs.environment}}.json
+          sed -i "s@<SecretAccessKey>@${{ secrets.secret-access-key }}@g" Microservice/app/config/config.${{inputs.environment}}.json  
 
       - name: Configure Dockerfile
         run: |
