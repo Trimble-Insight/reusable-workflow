@@ -60,19 +60,16 @@ jobs:
       with:
         mask-password: 'true'
 
-    - name: Build, tag, and push image to ECR
+    
+    - name: Build, tag and push
       id: build-image
-      env:
-        ECR_REGISTRY: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
-        ECR_REPOSITORY: ${{ inputs.ecr-repository }}
-        IMAGE_TAG: latest
-      run: |
-        # Build a docker container and
-        # push it to ECR so that it can
-        # be deployed to ECS.
-        docker build . -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --build-arg options=opt/options.${{ inputs.environment }}.json --build-arg schema=opt/lat.schema.sql
-        docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-        echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
     - name: Render in the new image ID in the ECS task definition
       id: task-def
@@ -99,3 +96,4 @@ jobs:
         cluster: ${{ inputs.cluster-name }}
         rule-prefix: ${{ inputs.rule-prefix }}
         task-definition: ${{ steps.task-def.outputs.task-definition }}
+
