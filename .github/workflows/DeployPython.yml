@@ -1,0 +1,92 @@
+on:
+  workflow_call:
+
+    inputs:
+      environment:
+        required: true
+        type: string
+      ecr-repository:
+        required: true
+        type: string
+      lambda-function-name:
+        required: true
+        type: string
+
+    secrets:
+      aws-account-id:
+        required: true
+      region:
+        required: true
+      access-key-id:
+        required: true
+      secret-access-key:
+        required: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        # Semantic version range syntax or exact version of a Python version
+        python-version: '3.x'
+        # Optional - x64 or x86 architecture, defaults to x64
+        architecture: 'x64'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.access-key-id }}
+        aws-secret-access-key: ${{ secrets.secret-access-key }}
+        aws-region: ${{ secrets.region }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+      with:
+        mask-password: 'true'
+
+    - name: Build, tag, and push image to ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
+        ECR_REPOSITORY: ${{ inputs.ecr-repository }}
+        IMAGE_TAG: latest
+      run: |
+        # Build a docker container and
+        # push it to ECR so that it can
+        # be deployed to ECS.
+        docker build . -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --build-arg options=opt/options.${{ inputs.environment }}.json --build-arg schema=opt/lat.schema.sql
+        docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+        echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+    - name: Render in the new image ID in the ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: TaskDefinitions/task-definition-${{ inputs.environment }}.json
+          container-name: ${{ inputs.service-name }}
+          image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+
+    - name: Deploy ECS task definition
+        if: ${{ inputs.is-scheduled-task == false || inputs.is-scheduled-task == '' || inputs.is-scheduled-task == null  }}
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ inputs.service-name }}
+          cluster: ${{ inputs.cluster-name }}
+          wait-for-service-stability: false
+
+    # Specific deployment for Scheduled Tasks
+    - name: Deploy to ECS Scheduled Tasks
+        if: ${{ inputs.is-scheduled-task == true  }}
+        uses: airfordable/ecs-deploy-task-definition-to-scheduled-task@v2.0.0
+        with:
+          cluster: ${{ inputs.cluster-name }}
+          rule-prefix: ${{ inputs.rule-prefix }}
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
