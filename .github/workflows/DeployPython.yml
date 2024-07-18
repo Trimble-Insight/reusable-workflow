@@ -2,15 +2,24 @@ on:
   workflow_call:
 
     inputs:
+      service-name:
+        required: true
+        type: string
       environment:
+        required: true
+        type: string
+      cluster-name:
         required: true
         type: string
       ecr-repository:
         required: true
         type: string
-      lambda-function-name:
-        required: true
+      rule-prefix:
+        required: false
         type: string
+      is-scheduled-task:
+        required: false
+        type: boolean
 
     secrets:
       aws-account-id:
