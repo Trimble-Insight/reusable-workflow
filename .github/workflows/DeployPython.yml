@@ -90,6 +90,11 @@ jobs:
         python -m pip install --upgrade pip
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+    - name: Configure Task Definition
+      run: |
+        sed -i "s/<aws_account_id>/${{ secrets.aws-account-id }}/g" TaskDefinitions/task-definition-${{ inputs.environment }}.json
+        sed -i "s/<region>/${{ secrets.region }}/g" TaskDefinitions/task-definition-${{ inputs.environment }}.json
+
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
