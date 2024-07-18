@@ -11,10 +11,13 @@ on:
       cluster-name:
         required: true
         type: string
+      repository:
+        required: true
+        type: string
       ecr-repository:
         required: true
         type: string
-      rule-prefix:
+      environment-file:
         required: false
         type: string
       is-scheduled-task:
@@ -30,7 +33,39 @@ on:
         required: true
       secret-access-key:
         required: true
+      personal-access-token:
+        required: true
+      github-token:
+         required: true
+      git-admin-user:
+        required: false
+      version-major:
+        required: true
+      version-minor:
+        required: true
+      version-hotfix:
+        required: true
+      version-build:
+        required: true
+      last-preview-build:
+        required: false
 jobs:
+  update_version:
+    uses: ./.github/workflows/UpdateBuildVersion.yml
+    with:
+      service-name: ${{ inputs.service-name }}
+      environment: ${{ inputs.environment }}
+      repository: ${{ inputs.repository }}
+      environment-file: ${{ inputs.environment-file }}
+    secrets:
+      personal-access-token: ${{ secrets.personal-access-token }}
+      github-token: ${{ secrets.github-token }}
+      version-major: ${{ secrets.version-major }}
+      version-minor: ${{ secrets.version-minor }}
+      version-hotfix: ${{ secrets.version-hotfix }}
+      version-build: ${{ secrets.version-build }}
+      last-preview-build: ${{ secrets.last-preview-build }}
+
   deploy:
     runs-on: ubuntu-latest
     steps:
