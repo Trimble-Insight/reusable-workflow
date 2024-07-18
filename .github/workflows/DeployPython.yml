@@ -75,27 +75,27 @@ jobs:
         echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
     - name: Render in the new image ID in the ECS task definition
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: TaskDefinitions/task-definition-${{ inputs.environment }}.json
-          container-name: ${{ inputs.service-name }}
-          image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+      id: task-def
+      uses: aws-actions/amazon-ecs-render-task-definition@v1
+      with:
+        task-definition: TaskDefinitions/task-definition-${{ inputs.environment }}.json
+        container-name: ${{ inputs.service-name }}
+        image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
 
     - name: Deploy ECS task definition
-        if: ${{ inputs.is-scheduled-task == false || inputs.is-scheduled-task == '' || inputs.is-scheduled-task == null  }}
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: ${{ inputs.service-name }}
-          cluster: ${{ inputs.cluster-name }}
-          wait-for-service-stability: false
+      if: ${{ inputs.is-scheduled-task == false || inputs.is-scheduled-task == '' || inputs.is-scheduled-task == null  }}
+      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+      with:
+        task-definition: ${{ steps.task-def.outputs.task-definition }}
+        service: ${{ inputs.service-name }}
+        cluster: ${{ inputs.cluster-name }}
+        wait-for-service-stability: false
 
     # Specific deployment for Scheduled Tasks
     - name: Deploy to ECS Scheduled Tasks
-        if: ${{ inputs.is-scheduled-task == true  }}
-        uses: airfordable/ecs-deploy-task-definition-to-scheduled-task@v2.0.0
-        with:
-          cluster: ${{ inputs.cluster-name }}
-          rule-prefix: ${{ inputs.rule-prefix }}
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
+      if: ${{ inputs.is-scheduled-task == true  }}
+      uses: airfordable/ecs-deploy-task-definition-to-scheduled-task@v2.0.0
+      with:
+        cluster: ${{ inputs.cluster-name }}
+        rule-prefix: ${{ inputs.rule-prefix }}
+        task-definition: ${{ steps.task-def.outputs.task-definition }}
