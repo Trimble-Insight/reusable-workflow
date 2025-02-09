@@ -157,6 +157,10 @@ jobs:
           sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/android/app/src/main/assets/capacitor.config.json
           sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/ios/App/App/capacitor.config.json
 
+      - name: Set Environment
+        if: ${{ inputs.service-name == 'Subscription-Report' }}
+        run: sed -i "s/<ENVIRONMENT>/${{ inputs.environment }}/g" app.py
+
       - name: Configure Task Definition
         run: |
           sed -i "s/<aws_account_id>/${{ secrets.aws-account-id }}/g" TaskDefinitions/task-definition-${{ inputs.environment }}.json
