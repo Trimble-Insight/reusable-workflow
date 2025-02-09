@@ -95,11 +95,7 @@ jobs:
 
       - name: Set Hostname
         if: ${{ inputs.lambda == 'PreToken' }}
-        run: sed -i "s/<HOSTNAME>/${{ secrets.insighthq-identity-hostname }}/g" ${{ inputs.function-path }}
-
-      - name: Set Env
-        if: ${{ inputs.lambda == 'subscription-report' }}
-        run: sed -i "s/<ENVIRONMENT>/${{ inputs.environment }}/g" ${{ inputs.function-path }}
+        run: sed -i "s/<HOSTNAME>/${{ secrets.insighthq-identity-hostname }}/g" ${{ inputs.function-path }}      
 
       - name: Build, tag, and push image to Amazon ECR
         id: build-image
