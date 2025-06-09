@@ -128,6 +128,8 @@ jobs:
         if: steps.check_files.outputs.files_exists == 'true'
         run: |
           sed -i "s/<version>/${{ env.VERSION }}/g" Microservice/appsettings.${{ env.FORMATTED_ENVIRONMENT }}.json
+          sed -i "s@<awsaccountid>@${{ secrets.aws-account-id }}@g" Microservice/appsettings.json
+          sed -i "s@<region>@${{ secrets.region }}@g" Microservice/appsettings.json
           sed -i "s@<accesskeyid>@${{ secrets.access-key-id }}@g" Microservice/appsettings.json
           sed -i "s@<secretaccesskey>@${{ secrets.secret-access-key }}@g" Microservice/appsettings.json
           sed -i "s@<github_pat>@${{ secrets.personal-access-token }}@g" Microservice/appsettings.json
