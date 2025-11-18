@@ -11,6 +11,11 @@ on:
       lambda-function-name:
         required: true
         type: string
+      dockerfile-path:
+        description: 'Path to Dockerfile relative to repo root (e.g. Function/Dockerfile)'
+        required: false
+        default: Dockerfile
+        type: string
 
     secrets:
       aws-account-id:
@@ -57,12 +62,26 @@ jobs:
         ECR_REGISTRY: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
         ECR_REPOSITORY: ${{ inputs.ecr-repository }}
         IMAGE_TAG: latest
+        DOCKERFILE_PATH: ${{ inputs.dockerfile-path }}
       run: |
-        # Build a docker container and
-        # push it to ECR so that it can
-        # be deployed to ECS.
-        docker build . -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --build-arg options=opt/options.${{ inputs.environment }}.json --build-arg schema=opt/lat.schema.sql
+        # Determine the correct Docker build context based on Dockerfile location
+        DOCKER_CONTEXT=$(dirname "$DOCKERFILE_PATH")
+
+        echo "Using Dockerfile: $DOCKERFILE_PATH"
+        echo "Using Build Context: $DOCKER_CONTEXT"
+
+        # Build image
+        docker build \
+          -f "$DOCKERFILE_PATH" \
+          "$DOCKER_CONTEXT" \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          --build-arg options=opt/options.${{ inputs.environment }}.json \
+          --build-arg schema=opt/lat.schema.sql
+
+        # Push to ECR
         docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+        # Output image
         echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
     - name: Update AWS Lambda Function Code
