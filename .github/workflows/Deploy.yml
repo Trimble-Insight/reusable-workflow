@@ -163,8 +163,11 @@ jobs:
 
       - name: Configure Certificate Keys (Data Streamer)
         if: ${{ inputs.service-name == 'DataStreamer' }}
+        env:
+          PRIVATE_KEY: ${{ secrets.mqtt-cert-private-key }}
         run: |
-          sed -i "s|<cert_private_key>|${{ secrets.mqtt-cert-private-key }}|g" Microservice/mqtt-ca.crt
+          awk -v key="$PRIVATE_KEY" '{gsub(/<cert_private_key>/, key); print}' Microservice/mqtt-ca.crt > Microservice/mqtt-ca.crt.tmp
+          mv Microservice/mqtt-ca.crt.tmp Microservice/mqtt-ca.crt
 
       - name: Set Environment
         if: ${{ inputs.service-name == 'Subscription-Report' }}
