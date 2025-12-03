@@ -60,6 +60,8 @@ on:
         required: false
       google-map-api-key:
         required: false
+      mqtt-cert-private-key:
+        required: false
 
 jobs:
   update_version:
@@ -156,6 +158,11 @@ jobs:
           sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/config.xml
           sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/android/app/src/main/assets/capacitor.config.json
           sed -i "s/<googlemap_api_key>/${{ secrets.google-map-api-key }}/g" Microservice/ios/App/App/capacitor.config.json
+
+      - name: Configure Certificate Keys (Data Streamer)
+        if: ${{ inputs.service-name == 'DataStreamer' }}
+        run: |
+          sed -i "s/<cert_private_key>/${{ secrets.mqtt-cert-private-key }}/g" Microservice/mqtt-ca.crt
 
       - name: Set Environment
         if: ${{ inputs.service-name == 'Subscription-Report' }}
