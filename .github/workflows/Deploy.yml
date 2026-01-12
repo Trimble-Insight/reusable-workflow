@@ -147,6 +147,12 @@ jobs:
           sed -i "s/<git_pat>/${{ secrets.personal-access-token }}/g" dockerfile
           sed -i "s/<git_user>/${{ secrets.git-admin-user }}/g" dockerfile
 
+      - name: Configure NuGet config
+        if: ${{ inputs.service-name == 'Configuration' }}
+        run: |
+          sed -i "s/<git_pat>/${{ secrets.personal-access-token }}/g" Microservice/NuGet.config
+          sed -i "s/<git_user>/${{ secrets.git-admin-user }}/g" Microservice/NuGet.config
+
       - name: Configure API Keys & Dockerfile (Home)
         if: ${{ inputs.service-name == 'Home' }}
         run: |
