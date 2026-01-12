@@ -95,6 +95,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Echo service name
+        run: echo "service-name = ${{ inputs.service-name }}"
+
       - name: Check for Preview
         if: ${{ inputs.environment == 'preview' }}
         run: echo "FORMATTED_ENVIRONMENT=Preview" >> $GITHUB_ENV
