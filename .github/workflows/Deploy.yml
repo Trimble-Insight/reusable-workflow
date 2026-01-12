@@ -95,7 +95,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Echo service name
+      - name: Echo Service Name
         run: echo "service-name = ${{ inputs.service-name }}"
 
       - name: Check for Preview
