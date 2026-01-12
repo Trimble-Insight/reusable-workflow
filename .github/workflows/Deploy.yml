@@ -95,9 +95,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Echo Service Name
-        run: echo "service-name = ${{ inputs.service-name }}"
-
       - name: Check for Preview
         if: ${{ inputs.environment == 'preview' }}
         run: echo "FORMATTED_ENVIRONMENT=Preview" >> $GITHUB_ENV
@@ -149,12 +146,6 @@ jobs:
           sed -i "s/<environment_name>/${{ env.FORMATTED_ENVIRONMENT }}/g" dockerfile
           sed -i "s/<git_pat>/${{ secrets.personal-access-token }}/g" dockerfile
           sed -i "s/<git_user>/${{ secrets.git-admin-user }}/g" dockerfile
-
-      - name: Configure NuGet config
-        if: ${{ inputs.service-name == 'Configuration' }}
-        run: |
-          sed -i "s/git_pat/${{ secrets.personal-access-token }}/g" Microservice/NuGet.config
-          sed -i "s/git_user/${{ secrets.git-admin-user }}/g" Microservice/NuGet.config
 
       - name: Configure API Keys & Dockerfile (Home)
         if: ${{ inputs.service-name == 'Home' }}
