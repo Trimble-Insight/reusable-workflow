@@ -59,6 +59,7 @@ jobs:
     - name: Build, tag, and push image to ECR
       id: build-image
       env:
+        DOCKER_BUILDKIT: "0"
         ECR_REGISTRY: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
         ECR_REPOSITORY: ${{ inputs.ecr-repository }}
         IMAGE_TAG: latest
@@ -71,7 +72,7 @@ jobs:
         echo "Using Build Context: $DOCKER_CONTEXT"
 
         # Build image
-        docker build \
+        docker build --platform linux/amd64 \
           -f "$DOCKERFILE_PATH" \
           "$DOCKER_CONTEXT" \
           -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
@@ -82,7 +83,7 @@ jobs:
         docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
         # Output image
-        echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
     - name: Update AWS Lambda Function Code
       env:
