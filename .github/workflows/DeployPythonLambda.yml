@@ -1,6 +1,5 @@
 on:
   workflow_call:
-
     inputs:
       environment:
         required: true
@@ -12,7 +11,7 @@ on:
         required: true
         type: string
       dockerfile-path:
-        description: 'Path to Dockerfile relative to repo root (e.g. Function/Dockerfile)'
+        description: "Path to Dockerfile relative to repo root (e.g. Function/Dockerfile)"
         required: false
         default: Dockerfile
         type: string
@@ -26,67 +25,79 @@ on:
         required: true
       secret-access-key:
         required: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        # Semantic version range syntax or exact version of a Python version
-        python-version: '3.x'
-        # Optional - x64 or x86 architecture, defaults to x64
-        architecture: 'x64'
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+      - uses: actions/checkout@v4
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.access-key-id }}
-        aws-secret-access-key: ${{ secrets.secret-access-key }}
-        aws-region: ${{ secrets.region }}
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+          architecture: "x64"
 
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v2
-      with:
-        mask-password: 'true'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-    - name: Build, tag, and push image to ECR
-      id: build-image
-      env:
-        DOCKER_BUILDKIT: "0"
-        ECR_REGISTRY: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
-        ECR_REPOSITORY: ${{ inputs.ecr-repository }}
-        IMAGE_TAG: latest
-        DOCKERFILE_PATH: ${{ inputs.dockerfile-path }}
-      run: |
-        # Determine the correct Docker build context based on Dockerfile location
-        DOCKER_CONTEXT=$(dirname "$DOCKERFILE_PATH")
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets['access-key-id'] }}
+          aws-secret-access-key: ${{ secrets['secret-access-key'] }}
+          aws-region: ${{ secrets['region'] }}
 
-        echo "Using Dockerfile: $DOCKERFILE_PATH"
-        echo "Using Build Context: $DOCKER_CONTEXT"
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          mask-password: "true"
 
-        # Build image
-        docker build --platform linux/amd64 \
-          -f "$DOCKERFILE_PATH" \
-          "$DOCKER_CONTEXT" \
-          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-          --build-arg options=opt/options.${{ inputs.environment }}.json \
-          --build-arg schema=opt/lat.schema.sql
+      - name: Build, tag, and push image to ECR (single-manifest amd64)
+        id: build-image
+        env:
+          DOCKER_BUILDKIT: "0"
+          ECR_REGISTRY: ${{ secrets['aws-account-id'] }}.dkr.ecr.${{ secrets['region'] }}.amazonaws.com
+          ECR_REPOSITORY: ${{ inputs.ecr-repository }}
+          IMAGE_TAG: latest
+          DOCKERFILE_PATH: ${{ inputs.dockerfile-path }}
+        run: |
+          set -euo pipefail
 
-        # Push to ECR
-        docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          DOCKER_CONTEXT=$(dirname "$DOCKERFILE_PATH")
 
-        # Output image
-        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "Using Dockerfile: $DOCKERFILE_PATH"
+          echo "Using Build Context: $DOCKER_CONTEXT"
+          echo "Target Image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "DOCKER_BUILDKIT=$DOCKER_BUILDKIT"
 
-    - name: Update AWS Lambda Function Code
-      env:
-        IMAGE_URI: ${{ steps.build-image.outputs.image }}
-      run: |
-        aws lambda update-function-code --function-name arn:aws:lambda:${{ secrets.region }}:${{ secrets.aws-account-id }}:function:${{ inputs.lambda-function-name }} --image-uri $IMAGE_URI
+          docker build --platform linux/amd64 \
+            -f "$DOCKERFILE_PATH" \
+            "$DOCKER_CONTEXT" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+            --build-arg options="opt/options.${{ inputs.environment }}.json" \
+            --build-arg schema="opt/lat.schema.sql"
+
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+          # Export for later steps
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+          # Verify manifest media type (must be Docker v2, NOT OCI index)
+          aws ecr batch-get-image \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --query 'images[0].imageManifestMediaType' \
+            --output text
+
+      - name: Update AWS Lambda Function Code
+        env:
+          IMAGE_URI: ${{ steps.build-image.outputs.image }}
+        run: |
+          set -euo pipefail
+
+          aws lambda update-function-code \
+            --function-name "arn:aws:lambda:${{ secrets['region'] }}:${{ secrets['aws-account-id'] }}:function:${{ inputs.lambda-function-name }}" \
+            --image-uri "$IMAGE_URI"
