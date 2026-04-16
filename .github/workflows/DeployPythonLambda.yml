@@ -47,7 +47,7 @@ jobs:
         id: check_config_files
         uses: andstor/file-existence-action@v3
         with:
-          files: "src/config/setting_${{inputs.environment}}.json"
+          files: "src/config/settings_${{inputs.environment}}.json"
           
       # Don't use access key Id and secret key with @
       - name: Update AWS credentials in config file
