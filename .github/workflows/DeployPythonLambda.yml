@@ -29,6 +29,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -46,7 +47,7 @@ jobs:
       - name: Get base directory from Dockerfile path
         id: get_dir
         run: |
-          echo "DIR=$(dirname '${{ inputs.dockerfile_path }}')" >> $GITHUB_OUTPUT
+          echo "DIR=$(dirname '${{ inputs.dockerfile-path }}')" >> "$GITHUB_OUTPUT"
 
       - name: Check file existence
         id: check_config_files
@@ -54,9 +55,9 @@ jobs:
         with:
           files: "${{ steps.get_dir.outputs.DIR }}/src/config/settings_${{ inputs.environment }}.json"
 
-       - name: Update AWS credentials in config file
-         if: steps.check_config_files.outputs.files_exists == 'true'
-         run: |
+      - name: Update AWS credentials in config file
+        if: steps.check_config_files.outputs.files_exists == 'true'
+        run: |
           sed -i "s@<accesskeyid>@${{ secrets['access-key-id'] }}@g" "${{ steps.get_dir.outputs.DIR }}/src/config/settings_${{ inputs.environment }}.json"
           sed -i "s@<secretaccesskey>@${{ secrets['secret-access-key'] }}@g" "${{ steps.get_dir.outputs.DIR }}/src/config/settings_${{ inputs.environment }}.json"
 
@@ -65,7 +66,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets['access-key-id'] }}
           aws-secret-access-key: ${{ secrets['secret-access-key'] }}
-          aws-region: ${{ secrets['region'] }}
+          aws-region: ${{ secrets.region }}
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -76,7 +77,7 @@ jobs:
         id: build-image
         env:
           DOCKER_BUILDKIT: "0"
-          ECR_REGISTRY: ${{ secrets['aws-account-id'] }}.dkr.ecr.${{ secrets['region'] }}.amazonaws.com
+          ECR_REGISTRY: ${{ secrets['aws-account-id'] }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
           ECR_REPOSITORY: ${{ inputs.ecr-repository }}
           IMAGE_TAG: latest
           DOCKERFILE_PATH: ${{ inputs.dockerfile-path }}
@@ -99,10 +100,8 @@ jobs:
 
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
-          # Export for later steps
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
-          # Verify manifest media type (must be Docker v2, NOT OCI index)
           aws ecr batch-get-image \
             --repository-name "$ECR_REPOSITORY" \
             --image-ids imageTag="$IMAGE_TAG" \
@@ -116,5 +115,5 @@ jobs:
           set -euo pipefail
 
           aws lambda update-function-code \
-            --function-name "arn:aws:lambda:${{ secrets['region'] }}:${{ secrets['aws-account-id'] }}:function:${{ inputs.lambda-function-name }}" \
+            --function-name "arn:aws:lambda:${{ secrets.region }}:${{ secrets['aws-account-id'] }}:function:${{ inputs.lambda-function-name }}" \
             --image-uri "$IMAGE_URI"
