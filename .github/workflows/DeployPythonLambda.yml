@@ -43,17 +43,22 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+      - name: Get base directory from Dockerfile path
+        id: get_dir
+        run: |
+          echo "DIR=$(dirname '${{ inputs.dockerfile_path }}')" >> $GITHUB_OUTPUT
+
       - name: Check file existence
         id: check_config_files
         uses: andstor/file-existence-action@v3
         with:
-          files: "${{ inputs.dockerfile-path }}/../src/config/settings_${{ inputs.environment }}.json"
+          files: "${{ steps.get_dir.outputs.DIR }}/src/config/settings_${{ inputs.environment }}.json"
 
-      - name: Update AWS credentials in config file
-        if: steps.check_config_files.outputs.files_exists == 'true'
-        run: |
-          sed -i "s@<accesskeyid>@${{ secrets['access-key-id'] }}@g" "${{ inputs.dockerfile-path }}/../src/config/settings_${{ inputs.environment }}.json"
-          sed -i "s@<secretaccesskey>@${{ secrets['secret-access-key'] }}@g" "${{ inputs.dockerfile-path }}/../src/config/settings_${{ inputs.environment }}.json"  
+       - name: Update AWS credentials in config file
+         if: steps.check_config_files.outputs.files_exists == 'true'
+         run: |
+          sed -i "s@<accesskeyid>@${{ secrets['access-key-id'] }}@g" "${{ steps.get_dir.outputs.DIR }}/src/config/settings_${{ inputs.environment }}.json"
+          sed -i "s@<secretaccesskey>@${{ secrets['secret-access-key'] }}@g" "${{ steps.get_dir.outputs.DIR }}/src/config/settings_${{ inputs.environment }}.json"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
