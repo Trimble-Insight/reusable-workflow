@@ -25,7 +25,11 @@ on:
         type: string
       is-scheduled-task:
         required: false
+        type: boolean  
+      enable-build-cache:
+        required: false
         type: boolean
+        default: true
 
     secrets:
       aws-account-id:
@@ -216,8 +220,8 @@ jobs:
           context: .
           push: true
           tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: ${{ inputs.enable-build-cache && 'type=gha' || '' }}
+          cache-to: ${{ inputs.enable-build-cache && 'type=gha,mode=max' || '' }}
 
       - name: Render in the new image ID in the ECS task definition
         id: task-def
