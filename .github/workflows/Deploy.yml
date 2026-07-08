@@ -29,7 +29,7 @@ on:
       enable-build-cache:
         required: false
         type: boolean
-        default: true
+        default: false
 
     secrets:
       aws-account-id:
