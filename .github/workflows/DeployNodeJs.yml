@@ -153,34 +153,25 @@ jobs:
         with:
           mask-password: 'true'
 
-      - name: Build, tag, and push image to ECR (single-manifest amd64)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ECR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.aws-account-id }}.dkr.ecr.${{ secrets.region }}.amazonaws.com
+          username: ${{ secrets.access-key-id }}
+          password: ${{ secrets.secret-access-key }}
+
+      - name: Build, tag and push
         id: build-image
-        env:
-          DOCKER_BUILDKIT: "0"
-          DOCKERFILE_PATH: dockerfile
-        run: |
-          set -euo pipefail
-
-          DOCKER_CONTEXT=$(dirname "$DOCKERFILE_PATH")
-
-          echo "Using Dockerfile: $DOCKERFILE_PATH"
-          echo "Using Build Context: $DOCKER_CONTEXT"
-          echo "Target Image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          echo "DOCKER_BUILDKIT=$DOCKER_BUILDKIT"
-
-          docker build --platform linux/amd64 \
-            -f "$DOCKERFILE_PATH" \
-            "$DOCKER_CONTEXT" \
-            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-
-          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-
-          # Verify manifest media type (must be Docker v2, NOT OCI index)
-          aws ecr batch-get-image \
-            --repository-name "$ECR_REPOSITORY" \
-            --image-ids imageTag="$IMAGE_TAG" \
-            --query 'images[0].imageManifestMediaType' \
-            --output text
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Render in the new image ID in the ECS task definition
         id: task-def
