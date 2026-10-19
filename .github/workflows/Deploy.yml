@@ -248,3 +248,20 @@ jobs:
         with:
           collection: "ApiRequests/Collections/Insight-ApiGateway-Monitor.postman_collection.json"
           environment: "ApiRequests/Environments/Insight-APIGateway-Monitor [${{ inputs.environment }}].postman_environment.json"
+
+  jira-consolidation:
+    if: >-
+      (github.event_name == 'push' && github.ref_name == 'release/staging') ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true &&
+       github.event.pull_request.base.ref == 'release/staging')
+    permissions:
+      contents: read
+    uses: your-org/jira-workflows/.github/workflows/jira-flow.yml@main
+    with:
+      flow: consolidation
+      version: ${{ vars.PRODUCTION_VERSION }}
+      jira-project-key: ${{ vars.JIRA_PROJECT_KEY }}
+      jira-base-url: ${{ vars.JIRA_BASE_URL }}
+    secrets:
+      JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}

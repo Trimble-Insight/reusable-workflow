@@ -1,0 +1,383 @@
+# Reusable Jira workflow: lives in a PUBLIC repo. Holds no secrets - callers pass them at runtime.
+#
+#   flow: change-request  -> PR into release/production. One ticket per version, one link per PR.
+#   flow: consolidation   -> PR MERGED into release/staging. One ticket per previous production
+#                            version, one link per REPO (no PRs).
+name: Jira flow (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      flow:
+        description: "change-request | consolidation"
+        type: string
+        required: true
+      version:
+        description: >
+          Full version string. Optional: overrides the version-* secrets. If neither is given,
+          consolidation falls back to the latest MAJOR.MINOR.HOTFIX tag on the production branch.
+        type: string
+        default: ""
+      include-build:
+        description: >
+          Append version-build when composing from the version-* secrets.
+          Default "false" (1.4.2). "true" appends the build (1.4.2.57); "auto" = only for change-request.
+        type: string
+        default: "false"
+      production-branch:
+        description: Branch whose tags define the previous production version (consolidation)
+        type: string
+        default: release/production
+      jira-project-key:
+        type: string
+        required: true
+      jira-base-url:
+        description: Preferred over the secret - a secret URL gets masked (***) in logs and summaries
+        type: string
+        default: ""
+      issue-type:
+        type: string
+        default: Task
+      issue-key:
+        description: Attach to this existing ticket instead of auto-creating one per version
+        type: string
+        default: ""
+      summary-template:
+        description: 'Defaults: "Production release {version}" / "Staging consolidation {version}"'
+        type: string
+        default: ""
+      extra-fields:
+        description: JSON merged into the create payload (required custom fields)
+        type: string
+        default: "{}"
+      require-approval:
+        description: change-request only - fail unless the ticket is in an approved status
+        type: boolean
+        default: false
+      approved-statuses:
+        type: string
+        default: Approved
+      comment-on-pr:
+        description: change-request only - comment the Jira link on the PR (caller needs pull-requests write)
+        type: boolean
+        default: true
+    secrets:
+      JIRA_USER_EMAIL:
+        required: true
+      JIRA_API_TOKEN:
+        required: true
+      JIRA_BASE_URL:
+        required: false
+      version-major:
+        required: false
+      version-minor:
+        required: false
+      version-hotfix:
+        required: false
+      version-build:
+        required: false
+    outputs:
+      issue-key:
+        value: ${{ jobs.jira.outputs.issue-key }}
+      version:
+        value: ${{ jobs.jira.outputs.version }}
+
+# No permissions block: the job gets exactly what the caller grants its GITHUB_TOKEN.
+jobs:
+  jira:
+    name: Jira ${{ inputs.flow }}
+    # Consolidation: on pull_request events only merged PRs count; push/dispatch/etc. always run.
+    if: >-
+      inputs.flow != 'consolidation' || github.event_name != 'pull_request' ||
+      github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      issue-key: ${{ steps.cr.outputs.issue-key }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout (to read production tags)
+        if: inputs.version == '' && inputs.flow == 'consolidation'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve version
+        id: version
+        env:
+          FLOW: ${{ inputs.flow }}
+          INPUT_VERSION: ${{ inputs.version }}
+          PROD_BRANCH: ${{ inputs.production-branch }}
+          INCLUDE_BUILD: ${{ inputs.include-build }}
+          V_MAJOR: ${{ secrets.version-major }}
+          V_MINOR: ${{ secrets.version-minor }}
+          V_HOTFIX: ${{ secrets.version-hotfix }}
+          V_BUILD: ${{ secrets.version-build }}
+        run: |
+          v="$INPUT_VERSION"
+          # 1) Compose from version-* secrets: MAJOR.MINOR.HOTFIX[.BUILD]
+          if [ -z "$v" ] && [ -n "$V_MAJOR$V_MINOR$V_HOTFIX" ]; then
+            if [ -z "$V_MAJOR" ] || [ -z "$V_MINOR" ] || [ -z "$V_HOTFIX" ]; then
+              echo "::error::version-major, version-minor and version-hotfix must all be set"; exit 1
+            fi
+            v="$V_MAJOR.$V_MINOR.$V_HOTFIX"
+            if [ "$INCLUDE_BUILD" = "auto" ]; then
+              [ "$FLOW" = "change-request" ] && INCLUDE_BUILD=true || INCLUDE_BUILD=false
+            fi
+            if [ "$INCLUDE_BUILD" = "true" ] && [ -n "$V_BUILD" ]; then v="$v.$V_BUILD"; fi
+            echo "Version composed from version-* secrets"
+          fi
+          # 2) Consolidation fallback: latest production tag
+          if [ -z "$v" ]; then
+            if [ "$FLOW" != "consolidation" ]; then
+              echo "::error::No version: pass the version-* secrets or the 'version' input"; exit 1
+            fi
+            git fetch --quiet --tags origin "+refs/heads/$PROD_BRANCH:refs/remotes/origin/$PROD_BRANCH" || {
+              echo "::error::Branch $PROD_BRANCH not found; pass 'version' explicitly"; exit 1; }
+            tag=$(git tag --merged "origin/$PROD_BRANCH" --sort=-v:refname \
+                  | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
+            if [ -z "$tag" ]; then
+              echo "::error::No MAJOR.MINOR.HOTFIX tag (e.g. v1.4.2) found on $PROD_BRANCH; pass 'version' explicitly"
+              exit 1
+            fi
+            v="${tag#v}"
+            echo "Previous production version: $v (tag $tag)"
+          fi
+          # Tickets group on MAJOR.MINOR.HOTFIX only: drop any leading "v" and build (v1.4.2.57 -> 1.4.2)
+          trimmed=$(echo "$v" | grep -oE '^v?[0-9]+\.[0-9]+\.[0-9]+' || true)
+          if [ -z "$trimmed" ]; then
+            echo "::error::Version '$v' is not MAJOR.MINOR.HOTFIX[...]"; exit 1
+          fi
+          v="${trimmed#v}"
+          echo "Version: $v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Upsert Jira ticket
+        id: cr
+        # All values go through env (never inlined into the script) to prevent injection.
+        env:
+          CR_FLOW: ${{ inputs.flow }}
+          CR_VERSION: ${{ steps.version.outputs.version }}
+          JIRA_BASE_URL: ${{ inputs.jira-base-url || secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ inputs.jira-project-key }}
+          JIRA_ISSUE_TYPE: ${{ inputs.issue-type }}
+          JIRA_ISSUE_KEY: ${{ inputs.issue-key }}
+          JIRA_SUMMARY_TEMPLATE: ${{ inputs.summary-template }}
+          JIRA_EXTRA_FIELDS: ${{ inputs.extra-fields }}
+          REQUIRE_APPROVAL: ${{ inputs.require-approval }}
+          APPROVED_STATUSES: ${{ inputs.approved-statuses }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_ACTION: ${{ github.event.action }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref || github.ref_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, random, re, sys, time, urllib.error, urllib.request
+
+          def fail(m): print(f"::error::{m}"); sys.exit(1)
+          def warn(m): print(f"::warning::{m}")
+          def env(n, d="", req=False):
+              v = (os.environ.get(n) or "").strip() or d
+              if req and not v: fail(f"Missing required input for {n}")
+              return v
+          def flag(n): return env(n, "false").lower() in ("1", "true", "yes", "on")
+          def slug(s): return re.sub(r"[^A-Za-z0-9._-]+", "-", s).strip("-")
+
+          FLOW = env("CR_FLOW", "change-request")
+          if FLOW not in ("change-request", "consolidation"):
+              fail(f"flow must be 'change-request' or 'consolidation', got '{FLOW}'")
+          CONSOLIDATION = FLOW == "consolidation"
+
+          BASE = env("JIRA_BASE_URL", req=True).rstrip("/")
+          AUTH = base64.b64encode(f"{env('JIRA_USER_EMAIL', req=True)}:{env('JIRA_API_TOKEN', req=True)}".encode()).decode()
+          PROJECT = env("JIRA_PROJECT_KEY", req=True)
+          VERSION = env("CR_VERSION", req=True)
+          REPO = env("GITHUB_REPOSITORY", req=True)
+          SERVER = env("GITHUB_SERVER_URL", "https://github.com")
+          RUN_URL = f"{SERVER}/{REPO}/actions/runs/{env('GITHUB_RUN_ID', '0')}"
+          PR_NUMBER = env("PR_NUMBER", req=not CONSOLIDATION)
+          PR_URL = env("PR_URL", f"{SERVER}/{REPO}/pull/{PR_NUMBER}")
+          PR_TITLE = env("PR_TITLE", f"PR #{PR_NUMBER}")
+          PR_ACTION, PR_MERGED = env("PR_ACTION", "opened"), flag("PR_MERGED")
+          PR_BASE = env("PR_BASE_REF", "release/staging" if CONSOLIDATION else "release/production")
+          SHA = (env("PR_MERGE_SHA") if PR_MERGED else env("PR_HEAD_SHA")) or env("GITHUB_SHA")
+          SHORT = SHA[:7]
+          KIND_LABEL = "consolidation" if CONSOLIDATION else "change-request"
+          VERSION_LABEL = env("CR_LABEL_PREFIX", "consolidation-" if CONSOLIDATION else "cr-") + slug(VERSION)
+          SUMMARY = env("JIRA_SUMMARY_TEMPLATE",
+                        "Staging consolidation {version}" if CONSOLIDATION else "Production release {version}")
+          REPO_LABEL = "repo-" + slug(REPO.split("/")[-1])
+          APPROVED = {s.strip().lower() for s in env("APPROVED_STATUSES", "Approved").split(",") if s.strip()}
+          try:
+              EXTRA = json.loads(env("JIRA_EXTRA_FIELDS", "{}"))
+          except json.JSONDecodeError as e:
+              fail(f"extra-fields is not valid JSON: {e}")
+
+          class JiraError(Exception):
+              def __init__(self, code, msg): super().__init__(msg); self.code = code
+
+          def jira(method, path, body=None):
+              data = json.dumps(body).encode() if body is not None else None
+              for attempt in range(5):
+                  req = urllib.request.Request(BASE + path, data=data, method=method, headers={
+                      "Authorization": f"Basic {AUTH}", "Accept": "application/json",
+                      "Content-Type": "application/json"})
+                  try:
+                      with urllib.request.urlopen(req, timeout=30) as r:
+                          raw = r.read()
+                          return json.loads(raw) if raw else None
+                  except urllib.error.HTTPError as e:
+                      text = e.read().decode(errors="replace")
+                      if e.code in (429, 500, 502, 503, 504) and attempt < 4:
+                          ra = e.headers.get("Retry-After")
+                          time.sleep(float(ra) if ra else 2 ** attempt + random.random()); continue
+                      raise JiraError(e.code, f"{method} {path} -> HTTP {e.code}: {text[:500]}") from None
+
+          def adf(*paras):
+              out = []
+              for para in paras:
+                  nodes = []
+                  for part in para:
+                      if isinstance(part, tuple):
+                          nodes.append({"type": "text", "text": part[0],
+                                        "marks": [{"type": "link", "attrs": {"href": part[1]}}]})
+                      elif part:
+                          nodes.append({"type": "text", "text": part})
+                  out.append({"type": "paragraph", "content": nodes})
+              return {"type": "doc", "version": 1, "content": out}
+
+          def find_open(reconcile=None):
+              body = {"jql": f'project = "{PROJECT}" AND labels = "{VERSION_LABEL}" AND statusCategory != Done',
+                      "fields": ["summary", "status"], "maxResults": 50}
+              if reconcile: body["reconcileIssues"] = [int(i) for i in reconcile]
+              return sorted(jira("POST", "/rest/api/3/search/jql", body).get("issues", []), key=lambda i: int(i["id"]))
+
+          def create_issue():
+              if CONSOLIDATION:
+                  desc = adf([f"Staging consolidation on top of production {VERSION}."],
+                             [f"Every repository merged into {PR_BASE} is listed under Web links."])
+              else:
+                  desc = adf([f"Aggregated change request for release {VERSION}."],
+                             ["Every repository with a PR into the production branch for this version is attached under Web links."],
+                             ["Opened automatically by ", (f"{REPO} PR #{PR_NUMBER}", PR_URL), "."])
+              fields = {
+                  "project": {"key": PROJECT},
+                  "issuetype": {"name": env("JIRA_ISSUE_TYPE", "Task")},
+                  "summary": SUMMARY.format(version=VERSION),
+                  "labels": [VERSION_LABEL, KIND_LABEL],
+                  "description": desc,
+              }
+              fields.update(EXTRA)
+              issue = jira("POST", "/rest/api/3/issue", {"fields": fields})
+              print(f"Created {issue['key']}")
+              return issue
+
+          def merge_into(canon, dup):
+              ck, dk = canon["key"], dup["key"]
+              print(f"Merging duplicate {dk} into {ck}")
+              for l in jira("GET", f"/rest/api/3/issue/{dk}/remotelink") or []:
+                  jira("POST", f"/rest/api/3/issue/{ck}/remotelink",
+                       {k: l[k] for k in ("globalId", "application", "relationship", "object") if k in l})
+              try:
+                  jira("POST", "/rest/api/3/issueLink", {"type": {"name": "Duplicate"},
+                       "inwardIssue": {"key": dk}, "outwardIssue": {"key": ck}})
+              except JiraError as e: warn(f"Could not link {dk} -> {ck}: {e}")
+              jira("PUT", f"/rest/api/3/issue/{dk}",
+                   {"update": {"labels": [{"remove": VERSION_LABEL}, {"add": f"{KIND_LABEL}-duplicate"}]}})
+              jira("POST", f"/rest/api/3/issue/{dk}/comment",
+                   {"body": adf([f"Duplicate from a concurrent run; links moved to {ck}. Safe to close."])})
+
+          def upsert_link(key):
+              if CONSOLIDATION:   # repo only, no PR
+                  link = {"globalId": f"github-repo:{REPO}", "relationship": "GitHub repository",
+                          "object": {"url": f"{SERVER}/{REPO}", "title": REPO,
+                                     "summary": f"last merged into {PR_BASE} · {SHORT}",
+                                     "status": {"resolved": False}}}
+              else:
+                  state = ("merged" if PR_MERGED else "closed without merge") if PR_ACTION == "closed" else "open"
+                  link = {"globalId": f"github-pr:{REPO}#{PR_NUMBER}", "relationship": "GitHub pull request",
+                          "object": {"url": PR_URL, "title": f"{REPO} #{PR_NUMBER}: {PR_TITLE}"[:255],
+                                     "summary": f"{state} · into {PR_BASE} · {SHORT} · @{env('PR_AUTHOR', 'unknown')}",
+                                     "status": {"resolved": PR_ACTION == "closed"}}}
+              link["application"] = {"type": "com.github", "name": "GitHub"}
+              link["object"]["icon"] = {"url16x16": "https://github.com/favicon.ico", "title": "GitHub"}
+              jira("POST", f"/rest/api/3/issue/{key}/remotelink", link)
+
+          def comment(key):
+              if CONSOLIDATION:
+                  para = [f"{REPO}: merged into {PR_BASE} (", (SHORT, f"{SERVER}/{REPO}/commit/{SHA}"),
+                          f") on top of production {VERSION} — ", ("run", RUN_URL)]
+              elif PR_ACTION in ("opened", "reopened", "ready_for_review"):
+                  para = [f"{REPO}: PR {PR_ACTION.replace('_', ' ')} into {PR_BASE} for {VERSION} — ",
+                          (f"PR #{PR_NUMBER}", PR_URL), " · ", ("run", RUN_URL)]
+              elif PR_ACTION == "closed":
+                  para = [f"{REPO}: {'merged' if PR_MERGED else 'closed without merge'} ({SHORT}) for {VERSION} — ",
+                          (f"PR #{PR_NUMBER}", PR_URL), " · ", ("run", RUN_URL)]
+              else:
+                  return
+              jira("POST", f"/rest/api/3/issue/{key}/comment", {"body": adf(para)})
+
+          def main():
+              fixed = env("JIRA_ISSUE_KEY")
+              if fixed:
+                  issues, created_id = [jira("GET", f"/rest/api/3/issue/{fixed}?fields=summary")], None
+                  jira("PUT", f"/rest/api/3/issue/{fixed}", {"update": {"labels": [{"add": VERSION_LABEL}]}})
+              else:
+                  issues, created_id = find_open(), None
+                  if not issues:
+                      time.sleep(random.uniform(0, 6))
+                      issues = find_open()
+                  if not issues:
+                      mine = create_issue(); created_id = mine["id"]
+                      for _ in range(2):
+                          time.sleep(3); issues = find_open([mine["id"]])
+                      if not any(i["id"] == mine["id"] for i in issues): issues.append(mine)
+                      issues.sort(key=lambda i: int(i["id"]))
+
+              canon = issues[0]
+              for dup in issues[1:]: merge_into(canon, dup)
+              key = canon["key"]
+
+              upsert_link(key)
+              jira("PUT", f"/rest/api/3/issue/{key}", {"update": {"labels": [{"add": REPO_LABEL}]}})
+              comment(key)
+
+              status = jira("GET", f"/rest/api/3/issue/{key}?fields=status")["fields"]["status"]["name"]
+              url = f"{BASE}/browse/{key}"
+              created = str(created_id == canon["id"]).lower()
+              with open(os.environ.get("GITHUB_OUTPUT", os.devnull), "a") as f:
+                  f.write(f"issue-key={key}\nissue-url={url}\ncreated={created}\nstatus={status}\n")
+              with open(os.environ.get("GITHUB_STEP_SUMMARY", os.devnull), "a") as f:
+                  f.write(f"### {FLOW}: [{key}]({url})\n- Version: `{VERSION}`\n- Status: **{status}**\n")
+              print(f"[{FLOW}] {REPO} -> {key} ({status})")
+
+              if not CONSOLIDATION and flag("REQUIRE_APPROVAL") and PR_ACTION != "closed" and status.lower() not in APPROVED:
+                  fail(f"{key} is '{status}'; needs one of {', '.join(sorted(APPROVED))}. Re-run after approval.")
+
+          try: main()
+          except JiraError as e: fail(str(e))
+          PY
+
+      - name: Comment Jira link on PR
+        if: >-
+          always() && inputs.flow == 'change-request' && inputs.comment-on-pr &&
+          steps.cr.outputs.issue-key != '' &&
+          (github.event.action == 'opened' || github.event.action == 'reopened')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ steps.cr.outputs.issue-key }}
+          URL: ${{ steps.cr.outputs.issue-url }}
+          STATUS: ${{ steps.cr.outputs.status }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" \
+            --body "Change request **[$KEY]($URL)** (status: $STATUS) tracks release \`$VERSION\` across all repos."
