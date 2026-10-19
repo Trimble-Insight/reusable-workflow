@@ -159,9 +159,9 @@ jobs:
         env:
           CR_FLOW: ${{ inputs.flow }}
           CR_VERSION: ${{ steps.version.outputs.version }}
-          JIRA_BASE_URL: ${{ inputs.jira-base-url || secrets.JIRA_BASE_URL }}
-          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
-          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_BASE_URL: ${{ inputs.jira-base-url || secrets.jira-base-url }}
+          JIRA_USER_EMAIL: ${{ secrets.jira-user-email }}
+          JIRA_API_TOKEN: ${{ secrets.jira-api-token }}
           JIRA_PROJECT_KEY: ${{ inputs.jira-project-key }}
           JIRA_ISSUE_TYPE: ${{ inputs.issue-type }}
           JIRA_ISSUE_KEY: ${{ inputs.issue-key }}
