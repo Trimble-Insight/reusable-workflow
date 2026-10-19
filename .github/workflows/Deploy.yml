@@ -70,6 +70,8 @@ on:
         required: false
       jira-api-token:
         required: false
+      production-version:
+        required: false
 
 jobs:
   update_version:
