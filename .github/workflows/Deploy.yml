@@ -256,7 +256,7 @@ jobs:
        github.event.pull_request.base.ref == 'release/staging')
     permissions:
       contents: read
-    uses: your-org/jira-workflows/.github/workflows/jira-flow.yml@main
+    uses: ./.github/workflows/jira-flow.yml
     with:
       flow: consolidation
       version: ${{ vars.PRODUCTION_VERSION }}
