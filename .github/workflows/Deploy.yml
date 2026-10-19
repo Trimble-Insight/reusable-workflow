@@ -66,9 +66,9 @@ on:
         required: false
       mqtt-cert-private-key:
         required: false
-      JIRA_USER_EMAIL:
+      jira-user-email:
         required: false
-      JIRA_API_TOKEN:
+      jira-api-token:
         required: false
 
 jobs:
@@ -267,5 +267,5 @@ jobs:
       jira-project-key: ${{ vars.JIRA_PROJECT_KEY }}
       jira-base-url: ${{ vars.JIRA_BASE_URL }}
     secrets:
-      JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
-      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      jira-user-email: ${{ secrets.jira-user-email }}
+      jira-api-token: ${{ secrets.jira-api-token }}
