@@ -144,6 +144,13 @@ jobs:
             v="${tag#v}"
             echo "Previous production version: $v (tag $tag)"
           fi
+          # Tickets group on MAJOR.MINOR.HOTFIX only: drop any leading "v" and build (v1.4.2.57 -> 1.4.2)
+          trimmed=$(echo "$v" | grep -oE '^v?[0-9]+\.[0-9]+\.[0-9]+' || true)
+          if [ -z "$trimmed" ]; then
+            echo "::error::Version '$v' is not MAJOR.MINOR.HOTFIX[...]"; exit 1
+          fi
+          v="${trimmed#v}"
+          echo "Version: $v"
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
       - name: Upsert Jira ticket
