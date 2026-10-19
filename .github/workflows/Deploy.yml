@@ -249,31 +249,17 @@ jobs:
           collection: "ApiRequests/Collections/Insight-ApiGateway-Monitor.postman_collection.json"
           environment: "ApiRequests/Environments/Insight-APIGateway-Monitor [${{ inputs.environment }}].postman_environment.json"
 
-  jira-consolidation-version:
+  jira-consolidation:
     if: >-
       (github.event_name == 'push' && github.ref_name == 'release/staging') ||
       (github.event_name == 'pull_request' && github.event.pull_request.merged == true &&
        github.event.pull_request.base.ref == 'release/staging')
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.v.outputs.version }}
-    steps:
-      - id: v
-        run: |
-          if [ -z "$VERSION" ]; then echo "::error::env.VERSION is empty"; exit 1; fi
-          # MAJOR.MINOR.HOTFIX only (1.4.2.57 -> 1.4.2)
-          v=$(echo "$VERSION" | grep -oE '^v?[0-9]+\.[0-9]+\.[0-9]+' || true)
-          if [ -z "$v" ]; then echo "::error::env.VERSION '$VERSION' is not MAJOR.MINOR.HOTFIX[...]"; exit 1; fi
-          echo "version=${v#v}" >> "$GITHUB_OUTPUT"
-
-  jira-consolidation:
-    needs: jira-consolidation-version
     permissions:
       contents: read
     uses: your-org/jira-workflows/.github/workflows/jira-flow.yml@main
     with:
       flow: consolidation
-      version: ${{ needs.jira-consolidation-version.outputs.version }}
+      version: ${{ vars.PRODUCTION_VERSION }}
       jira-project-key: ${{ vars.JIRA_PROJECT_KEY }}
       jira-base-url: ${{ vars.JIRA_BASE_URL }}
     secrets:
