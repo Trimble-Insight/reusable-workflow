@@ -86,8 +86,10 @@ on:
 jobs:
   jira:
     name: Jira ${{ inputs.flow }}
-    # Consolidation only counts merged PRs.
-    if: inputs.flow != 'consolidation' || github.event.pull_request.merged == true
+    # Consolidation: on pull_request events only merged PRs count; push/dispatch/etc. always run.
+    if: >-
+      inputs.flow != 'consolidation' || github.event_name != 'pull_request' ||
+      github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -166,7 +168,7 @@ jobs:
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           PR_ACTION: ${{ github.event.action }}
           PR_MERGED: ${{ github.event.pull_request.merged }}
-          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref || github.ref_name }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
