@@ -267,5 +267,5 @@ jobs:
       jira-project-key: ${{ vars.JIRA_PROJECT_KEY }}
       jira-base-url: ${{ vars.JIRA_BASE_URL }}
     secrets:
-      JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
-      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      JIRA_USER_EMAIL: ${{ secrets.jira-user-email }}
+      JIRA_API_TOKEN: ${{ secrets.jira-api-token }}
