@@ -263,9 +263,10 @@ jobs:
     uses: ./.github/workflows/jira-flow.yml
     with:
       flow: consolidation
-      version: ${{ vars.PRODUCTION_VERSION }}
       jira-project-key: ${{ vars.JIRA_PROJECT_KEY }}
       jira-base-url: ${{ vars.JIRA_BASE_URL }}
     secrets:
       jira-user-email: ${{ secrets.jira-user-email }}
       jira-api-token: ${{ secrets.jira-api-token }}
+      production-version: ${{ secrets.production-version }}
+
