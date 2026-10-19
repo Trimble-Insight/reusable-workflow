@@ -1,4 +1,6 @@
-# Reusable Jira workflow: lives in a PUBLIC repo. Holds no secrets - callers pass them at runtime.
+# Reusable Jira workflow: lives in a PUBLIC repo and holds no secrets.
+# jira-user-email / jira-api-token must be passed down by every level of the calling chain
+# (top-level -> middle -> this), either explicitly or with `secrets: inherit`.
 #
 #   flow: change-request  -> PR into release/production. One ticket per version, one link per PR.
 #   flow: consolidation   -> PR MERGED into release/staging. One ticket per previous production
@@ -14,25 +16,15 @@ on:
         required: true
       version:
         description: >
-          Full version string. Optional: overrides the version-* secrets. If neither is given,
-          consolidation falls back to the latest MAJOR.MINOR.HOTFIX tag on the production branch.
+          Full version string (e.g. from env.VERSION). Overrides the production-version secret.
+          Trimmed to MAJOR.MINOR.HOTFIX.
         type: string
         default: ""
-      include-build:
-        description: >
-          Append version-build when composing from the version-* secrets.
-          Default "false" (1.4.2). "true" appends the build (1.4.2.57); "auto" = only for change-request.
-        type: string
-        default: "false"
-      production-branch:
-        description: Branch whose tags define the previous production version (consolidation)
-        type: string
-        default: release/production
       jira-project-key:
         type: string
         required: true
       jira-base-url:
-        description: Preferred over the secret - a secret URL gets masked (***) in logs and summaries
+        description: Preferred over the jira-base-url secret - a secret URL gets masked (***) in logs and summaries
         type: string
         default: ""
       issue-type:
@@ -68,13 +60,8 @@ on:
         required: true
       jira-base-url:
         required: false
-      version-major:
-        required: false
-      version-minor:
-        required: false
-      version-hotfix:
-        required: false
-      version-build:
+      production-version:
+        description: Version as one secret, e.g. 1.4.2 (any build part is dropped)
         required: false
     outputs:
       issue-key:
@@ -96,62 +83,35 @@ jobs:
       issue-key: ${{ steps.cr.outputs.issue-key }}
       version: ${{ steps.version.outputs.version }}
     steps:
-      - name: Checkout (to read production tags)
-        if: inputs.version == '' && inputs.flow == 'consolidation'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          fetch-depth: 0
-          persist-credentials: false
+      - name: Check Jira credentials
+        env:
+          HAS_EMAIL: ${{ secrets.jira-user-email != '' }}
+          HAS_TOKEN: ${{ secrets.jira-api-token != '' }}
+        run: |
+          if [ "$HAS_EMAIL" != "true" ] || [ "$HAS_TOKEN" != "true" ]; then
+            echo "::error::jira-user-email / jira-api-token arrived empty. Every workflow in the chain" \
+                 "(top-level -> middle -> jira-flow) must pass them on: 'secrets: inherit' or explicit mapping."
+            exit 1
+          fi
 
       - name: Resolve version
         id: version
         env:
-          FLOW: ${{ inputs.flow }}
           INPUT_VERSION: ${{ inputs.version }}
-          PROD_BRANCH: ${{ inputs.production-branch }}
-          INCLUDE_BUILD: ${{ inputs.include-build }}
-          V_MAJOR: ${{ secrets.version-major }}
-          V_MINOR: ${{ secrets.version-minor }}
-          V_HOTFIX: ${{ secrets.version-hotfix }}
-          V_BUILD: ${{ secrets.version-build }}
+          PRODUCTION_VERSION: ${{ secrets.production-version }}
         run: |
-          v="$INPUT_VERSION"
-          # 1) Compose from version-* secrets: MAJOR.MINOR.HOTFIX[.BUILD]
-          if [ -z "$v" ] && [ -n "$V_MAJOR$V_MINOR$V_HOTFIX" ]; then
-            if [ -z "$V_MAJOR" ] || [ -z "$V_MINOR" ] || [ -z "$V_HOTFIX" ]; then
-              echo "::error::version-major, version-minor and version-hotfix must all be set"; exit 1
-            fi
-            v="$V_MAJOR.$V_MINOR.$V_HOTFIX"
-            if [ "$INCLUDE_BUILD" = "auto" ]; then
-              [ "$FLOW" = "change-request" ] && INCLUDE_BUILD=true || INCLUDE_BUILD=false
-            fi
-            if [ "$INCLUDE_BUILD" = "true" ] && [ -n "$V_BUILD" ]; then v="$v.$V_BUILD"; fi
-            echo "Version composed from version-* secrets"
-          fi
-          # 2) Consolidation fallback: latest production tag
+          # Priority: 'version' input, then 'production-version' secret.
+          v="${INPUT_VERSION:-$PRODUCTION_VERSION}"
           if [ -z "$v" ]; then
-            if [ "$FLOW" != "consolidation" ]; then
-              echo "::error::No version: pass the version-* secrets or the 'version' input"; exit 1
-            fi
-            git fetch --quiet --tags origin "+refs/heads/$PROD_BRANCH:refs/remotes/origin/$PROD_BRANCH" || {
-              echo "::error::Branch $PROD_BRANCH not found; pass 'version' explicitly"; exit 1; }
-            tag=$(git tag --merged "origin/$PROD_BRANCH" --sort=-v:refname \
-                  | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
-            if [ -z "$tag" ]; then
-              echo "::error::No MAJOR.MINOR.HOTFIX tag (e.g. v1.4.2) found on $PROD_BRANCH; pass 'version' explicitly"
-              exit 1
-            fi
-            v="${tag#v}"
-            echo "Previous production version: $v (tag $tag)"
+            echo "::error::No version: pass the 'production-version' secret or the 'version' input"; exit 1
           fi
-          # Tickets group on MAJOR.MINOR.HOTFIX only: drop any leading "v" and build (v1.4.2.57 -> 1.4.2)
+          # Tickets group on MAJOR.MINOR.HOTFIX only (v1.4.2.57 -> 1.4.2)
           trimmed=$(echo "$v" | grep -oE '^v?[0-9]+\.[0-9]+\.[0-9]+' || true)
           if [ -z "$trimmed" ]; then
-            echo "::error::Version '$v' is not MAJOR.MINOR.HOTFIX[...]"; exit 1
+            echo "::error::Version is not MAJOR.MINOR.HOTFIX (got '$v'; empty parts usually mean a secret wasn't passed down)"
+            exit 1
           fi
-          v="${trimmed#v}"
-          echo "Version: $v"
-          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "version=${trimmed#v}" >> "$GITHUB_OUTPUT"
 
       - name: Upsert Jira ticket
         id: cr
