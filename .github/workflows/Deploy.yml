@@ -66,6 +66,10 @@ on:
         required: false
       mqtt-cert-private-key:
         required: false
+      JIRA_USER_EMAIL:
+        required: false
+      JIRA_API_TOKEN:
+        required: false
 
 jobs:
   update_version:
