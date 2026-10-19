@@ -62,11 +62,11 @@ on:
         type: boolean
         default: true
     secrets:
-      JIRA_USER_EMAIL:
+      jira-user-email:
         required: true
-      JIRA_API_TOKEN:
+      jira-api-token:
         required: true
-      JIRA_BASE_URL:
+      jira-base-url:
         required: false
       version-major:
         required: false
