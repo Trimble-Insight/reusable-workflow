@@ -57,6 +57,18 @@ on:
         description: Max commits/feature PRs listed in the summary
         type: number
         default: 30
+      link-issues:
+        description: change-request only - add Jira keys found in the PR title, description and commits as linked work items
+        type: boolean
+        default: true
+      link-type:
+        description: Jira issue link type name used for those links
+        type: string
+        default: Relates
+      link-projects:
+        description: Only link keys from these Jira projects, comma-separated (e.g. "ABC,DEF"). Empty = any project.
+        type: string
+        default: ""
       comment-on-pr:
         description: change-request only - comment the Jira link on the PR (caller needs pull-requests write)
         type: boolean
@@ -123,8 +135,8 @@ jobs:
 
       - name: Collect PR changes
         if: >-
-          inputs.flow == 'change-request' && inputs.include-summary &&
-          github.event_name == 'pull_request' && github.event.action != 'synchronize' &&
+          inputs.flow == 'change-request' && (inputs.include-summary || inputs.link-issues) &&
+          github.event_name == 'pull_request' &&
           (github.event.action != 'closed' || github.event.pull_request.merged == true)
         continue-on-error: true   # a missing summary must never block the change request
         env:
@@ -169,6 +181,9 @@ jobs:
           PR_ADDITIONS: ${{ github.event.pull_request.additions }}
           PR_DELETIONS: ${{ github.event.pull_request.deletions }}
           PR_COMMITS_FILE: ${{ runner.temp }}/pr-commits.jsonl
+          CR_LINK_ISSUES: ${{ inputs.link-issues }}
+          CR_LINK_TYPE: ${{ inputs.link-type }}
+          CR_LINK_PROJECTS: ${{ inputs.link-projects }}
         run: |
           python3 - <<'PY'
           import base64, json, os, random, re, sys, time, urllib.error, urllib.request
@@ -302,7 +317,52 @@ jobs:
               link["object"]["icon"] = {"url16x16": "https://github.com/favicon.ico", "title": "GitHub"}
               jira("POST", f"/rest/api/3/issue/{key}/remotelink", link)
 
-          def build_summary(own_key):
+          KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
+          LINK_PROJECTS = {p.strip().upper() for p in env("CR_LINK_PROJECTS").split(",") if p.strip()}
+
+          def load_commits():
+              path, commits = env("PR_COMMITS_FILE"), []
+              if path and os.path.exists(path):
+                  with open(path) as fh:
+                      for line in fh:
+                          line = line.strip()
+                          if line:
+                              try: commits.append(json.loads(line))
+                              except json.JSONDecodeError: pass
+              return commits
+
+          def referenced_keys(own_key, commits):
+              """Jira keys found in commit messages, PR title and PR description (in order, de-duplicated)."""
+              found = []
+              sources = [c.get("msg", "") for c in commits] + [PR_TITLE, env("PR_BODY")]
+              for k in KEY_RE.findall("\n".join(sources)):
+                  if k == own_key or k in found: continue
+                  if LINK_PROJECTS and k.split("-")[0] not in LINK_PROJECTS: continue
+                  found.append(k)
+              return found
+
+          def link_issues(key, keys):
+              """Add each referenced ticket as a linked work item on the change request (idempotent)."""
+              if not keys: return [], []
+              link_type = env("CR_LINK_TYPE", "Relates")
+              existing = set()
+              for l in jira("GET", f"/rest/api/3/issue/{key}?fields=issuelinks")["fields"].get("issuelinks", []):
+                  for side in ("inwardIssue", "outwardIssue"):
+                      if side in l: existing.add(l[side]["key"])
+              linked, skipped = [], []
+              for k in keys[:100]:
+                  if k in existing: continue
+                  try:
+                      jira("POST", "/rest/api/3/issueLink", {"type": {"name": link_type},
+                           "inwardIssue": {"key": k}, "outwardIssue": {"key": key}})
+                      linked.append(k)
+                  except JiraError as e:
+                      skipped.append(k)   # not a real ticket (e.g. "SHA-256"), or no access
+                      warn(f"Could not link {k}: HTTP {e.code}")
+              print(f"Linked work items: +{len(linked)} new, {len(skipped)} skipped, {len(existing)} already linked")
+              return linked, skipped
+
+          def build_summary(own_key, commits):
               """ADF blocks summarising what a release PR contains (change-request flow only)."""
               if not flag("CR_INCLUDE_SUMMARY"):
                   return []
@@ -332,16 +392,7 @@ jobs:
                       blocks.append(para(text(re.sub(r"\s*\n\s*", " ", chunk))))
 
               # Changes: merged feature PRs (from merge commits) and regular commits
-              items, keys_seen = [], []
-              path = env("PR_COMMITS_FILE")
-              commits = []
-              if path and os.path.exists(path):
-                  with open(path) as fh:
-                      for line in fh:
-                          line = line.strip()
-                          if line:
-                              try: commits.append(json.loads(line))
-                              except json.JSONDecodeError: pass
+              items = []
               for c in commits:
                   msg = c.get("msg", "")
                   lines = [l.strip() for l in msg.splitlines() if l.strip()]
@@ -356,10 +407,7 @@ jobs:
                   else:
                       items.append([link(c.get("sha", "")[:7], f"{SERVER}/{REPO}/commit/{c.get('sha', '')}"),
                                     text(f" {subject}"), text(f" (@{c['author']})" if c.get("author") else "")])
-                  for k in re.findall(r"\b[A-Z][A-Z0-9]+-\d+\b", msg):
-                      if k != own_key and k not in keys_seen: keys_seen.append(k)
-              for k in re.findall(r"\b[A-Z][A-Z0-9]+-\d+\b", f"{PR_TITLE} {env('PR_BODY')}"):
-                  if k != own_key and k not in keys_seen: keys_seen.append(k)
+              keys_seen = referenced_keys(own_key, commits)
 
               if items:
                   cap = int(env("CR_SUMMARY_MAX_ITEMS", "30"))
@@ -369,14 +417,14 @@ jobs:
                       shown.append([link(f"…and {len(items) - cap} more", f"{PR_URL}/commits")])
                   blocks.append(bullets(shown))
               if keys_seen:
-                  nodes = [text("Jira issues referenced: ", True)]
+                  nodes = [text("Linked work items: " if flag("CR_LINK_ISSUES") else "Jira issues referenced: ", True)]
                   for i, k in enumerate(keys_seen[:50]):
                       if i: nodes.append(text(", "))
                       nodes.append(link(k, f"{BASE}/browse/{k}"))
                   blocks.append(para(*nodes))
               return blocks
 
-          def comment(key):
+          def comment(key, commits):
               summary = []
               if CONSOLIDATION:
                   para = [f"{REPO}: merged into {PR_BASE} (", (SHORT, f"{SERVER}/{REPO}/commit/{SHA}"),
@@ -384,11 +432,11 @@ jobs:
               elif PR_ACTION in ("opened", "reopened", "ready_for_review"):
                   para = [f"{REPO}: PR {PR_ACTION.replace('_', ' ')} into {PR_BASE} for {VERSION} — ",
                           (f"PR #{PR_NUMBER}", PR_URL), " · ", ("run", RUN_URL)]
-                  summary = build_summary(key)
+                  summary = build_summary(key, commits)
               elif PR_ACTION == "closed":
                   para = [f"{REPO}: {'merged' if PR_MERGED else 'closed without merge'} ({SHORT}) for {VERSION} — ",
                           (f"PR #{PR_NUMBER}", PR_URL), " · ", ("run", RUN_URL)]
-                  if PR_MERGED: summary = build_summary(key)
+                  if PR_MERGED: summary = build_summary(key, commits)
               else:
                   return
               doc = adf(para)
@@ -418,7 +466,11 @@ jobs:
 
               upsert_link(key)
               jira("PUT", f"/rest/api/3/issue/{key}", {"update": {"labels": [{"add": REPO_LABEL}]}})
-              comment(key)
+              commits = load_commits()
+              comment(key, commits)
+              linked = []
+              if not CONSOLIDATION and flag("CR_LINK_ISSUES"):
+                  linked, _ = link_issues(key, referenced_keys(key, commits))
 
               status = jira("GET", f"/rest/api/3/issue/{key}?fields=status")["fields"]["status"]["name"]
               url = f"{BASE}/browse/{key}"
@@ -427,6 +479,7 @@ jobs:
                   f.write(f"issue-key={key}\nissue-url={url}\ncreated={created}\nstatus={status}\n")
               with open(os.environ.get("GITHUB_STEP_SUMMARY", os.devnull), "a") as f:
                   f.write(f"### {FLOW}: [{key}]({url})\n- Version: `{VERSION}`\n- Status: **{status}**\n")
+                  if linked: f.write(f"- Linked work items added: {', '.join(linked)}\n")
               print(f"[{FLOW}] {REPO} -> {key} ({status})")
 
               if not CONSOLIDATION and flag("REQUIRE_APPROVAL") and PR_ACTION != "closed" and status.lower() not in APPROVED:
