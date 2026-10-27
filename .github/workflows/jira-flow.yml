@@ -46,6 +46,12 @@ on:
         description: change-request only - fail unless the ticket is in an approved status
         type: boolean
         default: false
+      approval-roles:
+        description: >
+          change-request only - roles for the Approvals table added to the ticket description (comma-separated).
+          Added once; approvers fill it in and the pipeline never changes it. Empty = no table.
+        type: string
+        default: "Product Manager, Team Lead, Deployment Lead, Product Owner"
       approved-statuses:
         description: Comma-separated status names that count as approved (case-insensitive)
         type: string
@@ -88,8 +94,14 @@ on:
           The page is rebuilt on every run and linked from the Jira ticket. Defaults to IDP (IHQ Deployment Plan); pass "" to turn pages off.
         type: string
         default: IDP
+      confluence-folder-title-template:
+        description: >
+          Put each release's pages (release record, post-deployment plan, release notes) in one folder with this
+          title; placeholders {version}, {key}, {summary}. Empty = no folder.
+        type: string
+        default: "Release {version}"
       confluence-parent-id:
-        description: Optional page ID to create release-record pages under
+        description: Optional page or folder ID to create the release folder (or pages) under
         type: string
         default: ""
       confluence-title-template:
@@ -226,6 +238,7 @@ jobs:
           JIRA_EXTRA_FIELDS: ${{ inputs.extra-fields }}
           REQUIRE_APPROVAL: ${{ inputs.require-approval }}
           APPROVED_STATUSES: ${{ inputs.approved-statuses }}
+          APPROVAL_ROLES: ${{ inputs.approval-roles }}
           CLOSED_STATUSES: ${{ inputs.closed-statuses }}
           DELETE_DUPLICATES: ${{ inputs.delete-duplicates }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -250,6 +263,7 @@ jobs:
           CR_LINK_PROJECTS: ${{ inputs.link-projects }}
           CONFLUENCE_SPACE_KEY: ${{ inputs.confluence-space-key }}
           CONFLUENCE_PARENT_ID: ${{ inputs.confluence-parent-id }}
+          CONFLUENCE_FOLDER_TITLE_TEMPLATE: ${{ inputs.confluence-folder-title-template }}
           CONFLUENCE_TITLE_TEMPLATE: ${{ inputs.confluence-title-template }}
           CONFLUENCE_MANUAL_ITEMS: ${{ inputs.confluence-manual-items }}
           CONFLUENCE_TEST_PLAN: ${{ inputs.confluence-test-plan }}
@@ -334,6 +348,56 @@ jobs:
                   out.append({"type": "paragraph", "content": nodes})
               return {"type": "doc", "version": 1, "content": out}
 
+          APPROVAL_ROLES = [r.strip() for r in env("APPROVAL_ROLES").split(",") if r.strip()]
+
+          def _cell(t, header=False):
+              para = {"type": "paragraph", "content": ([{"type": "text", "text": t, **({"marks": [{"type": "strong"}]} if header else {})}]
+                                                       if t else [])}
+              return {"type": "tableHeader" if header else "tableCell", "attrs": {}, "content": [para]}
+
+          def approvals_block():
+              """ADF: 'Approvals' heading, a hint, and a table with one row per role."""
+              head = ["Role", "Approver", "Decision", "Date", "Notes"]
+              rows = [{"type": "tableRow", "content": [_cell(h, True) for h in head]}]
+              for role in APPROVAL_ROLES:
+                  rows.append({"type": "tableRow", "content": [_cell(role, True), _cell(""), _cell("Pending"), _cell(""), _cell("")]})
+              return [{"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Approvals"}]},
+                      {"type": "paragraph", "content": [{"type": "text", "marks": [{"type": "strong"}], "text":
+                          "⚠ This change request must not be closed until every role below has approved."}]},
+                      {"type": "paragraph", "content": [{"type": "text", "text":
+                          "Approvers: edit this table with your name, decision (Approved / Rejected) and date. "
+                          "The pipeline adds it once and never changes it."}]},
+                      {"type": "table", "attrs": {"isNumberColumnEnabled": False, "layout": "default"}, "content": rows}]
+
+          def _is_approvals_heading(n):
+              return n.get("type") == "heading" and "".join(c.get("text", "") for c in n.get("content", [])).strip().lower() == "approvals"
+
+          def ensure_approvals(key):
+              """Add the Approvals table to an existing ticket's description once (never edits it afterwards)."""
+              if not APPROVAL_ROLES: return
+              desc = jira("GET", f"/rest/api/3/issue/{key}?fields=description")["fields"].get("description") \
+                  or {"type": "doc", "version": 1, "content": []}
+              if any(_is_approvals_heading(n) for n in desc.get("content", [])):
+                  return dedupe_approvals(key, desc)
+              desc["content"] = desc.get("content", []) + approvals_block()
+              jira("PUT", f"/rest/api/3/issue/{key}", {"fields": {"description": desc}})
+              print(f"Added approvals table to {key}")
+              time.sleep(random.uniform(1, 2))   # two repos at once? re-read and keep only the first table
+              dedupe_approvals(key, jira("GET", f"/rest/api/3/issue/{key}?fields=description")["fields"].get("description") or {})
+
+          def dedupe_approvals(key, desc):
+              content = desc.get("content", [])
+              idx = [i for i, n in enumerate(content) if _is_approvals_heading(n)]
+              if len(idx) < 2: return
+              drop = set()
+              for i in idx[1:]:   # remove later copies: heading + hint + table
+                  j = i + 1
+                  while j < len(content) and content[j].get("type") not in ("table", "heading"): j += 1
+                  drop.update(range(i, (j + 1) if j < len(content) and content[j].get("type") == "table" else (i + 1)))
+              desc["content"] = [n for k, n in enumerate(content) if k not in drop]
+              jira("PUT", f"/rest/api/3/issue/{key}", {"fields": {"description": desc}})
+              print(f"Removed {len(idx) - 1} duplicate approvals table(s) from {key}")
+
           def find_open(reconcile=None):
               # Default: one ticket per version, whatever its status. closed-statuses (opt-in) re-enables
               # "finished" tickets, after which a new ticket would be created for the same version.
@@ -352,6 +416,7 @@ jobs:
                   desc = adf([f"Aggregated change request for release {VERSION}."],
                              ["Every repository with a PR into the production branch for this version is attached under Web links."],
                              ["Opened automatically by ", (f"{REPO} PR #{PR_NUMBER}", PR_URL), "."])
+                  if APPROVAL_ROLES: desc["content"].extend(approvals_block())
               fields = {
                   "project": {"key": PROJECT},
                   "issuetype": {"name": env("JIRA_ISSUE_TYPE", "Task")},
@@ -559,6 +624,7 @@ jobs:
           CONF_SPACE = env("CONFLUENCE_SPACE_KEY")
           CONF_PARENT = env("CONFLUENCE_PARENT_ID")
           CONF_TITLE = env("CONFLUENCE_TITLE_TEMPLATE", "Change request {key}: {summary}")
+          CONF_FOLDER_TITLE = env("CONFLUENCE_FOLDER_TITLE_TEMPLATE")   # e.g. "Release {version}"; empty = no folder
           CONF_MANUAL = flag("CONFLUENCE_MANUAL_ITEMS")
           CONF_TESTS = flag("CONFLUENCE_TEST_PLAN")
           CONF_TESTS_TITLE = env("CONFLUENCE_TEST_PLAN_TITLE_TEMPLATE", "Post-deployment plan {key}: {summary}")
@@ -927,6 +993,58 @@ jobs:
                       if not found: raise
               return jira("GET", f"/wiki/api/v2/pages/{found[0]['id']}")
 
+          def find_folders(space_key, title):
+              """IDs of folders with this exact title in the space (via CQL; empty if the search can't do folders)."""
+              cql = f'space = "{space_key}" AND type = folder AND title = "{title.replace(chr(34), "")}"'
+              try:
+                  res = jira("GET", "/wiki/rest/api/search?" + urllib.parse.urlencode({"cql": cql, "limit": 25}))
+                  ids = [str((r.get("content") or {}).get("id")) for r in res.get("results", [])]
+                  return sorted({i for i in ids if i and i != "None"}, key=int)
+              except JiraError:
+                  return []
+
+          def ensure_folder(key, space_id, title, stored):
+              """One folder per release. Returns (container_id, kind) or (None, None)."""
+              fid = stored.get("folderId")
+              if fid:
+                  try:
+                      jira("GET", f"/wiki/api/v2/{'folders' if stored.get('folderKind') != 'page' else 'pages'}/{fid}")
+                      return fid, stored.get("folderKind", "folder")
+                  except JiraError as err:
+                      if err.code != 404: raise
+              found = find_folders(CONF_SPACE, title)
+              if found: return found[0], "folder"
+              try:
+                  payload = {"spaceId": space_id, "title": title}
+                  if CONF_PARENT: payload["parentId"] = CONF_PARENT
+                  mine = str(jira("POST", "/wiki/api/v2/folders", payload)["id"])
+                  print(f"Created folder {mine}: {title}")
+              except JiraError as err:
+                  found = find_folders(CONF_SPACE, title)          # created by a concurrent run?
+                  if found: return found[0], "folder"
+                  warn(f"Could not create a Confluence folder ({err}); grouping the pages under a parent page instead.")
+                  p = ensure_page(space_id, title, f"<p>Pages for {e(title)}.</p>", CONF_PARENT or None)
+                  return p["id"], "page"
+              # Two repos may have created a folder at the same moment: keep the oldest, remove ours if it lost.
+              time.sleep(random.uniform(1, 3))
+              candidates = {mine, *find_folders(CONF_SPACE, title)}
+              other = (get_prop(key, PAGE_PROP) or {}).get("folderId")
+              if other: candidates.add(str(other))
+              winner = min(candidates, key=int)
+              if winner != mine:
+                  try: jira("DELETE", f"/wiki/api/v2/folders/{mine}"); print(f"Removed duplicate folder {mine}")
+                  except JiraError as err: warn(f"Duplicate empty folder {mine} could not be removed: {err}")
+              return winner, "folder"
+
+          def place_in(page, container_id):
+              """Move a page into the release folder if it isn't there yet."""
+              if str(page.get("parentId") or "") == str(container_id): return
+              try:
+                  jira("PUT", f"/wiki/rest/api/content/{page['id']}/move/append/{container_id}")
+                  print(f"Moved page {page['id']} into {container_id}")
+              except JiraError as err:
+                  warn(f"Could not move page {page['id']} into the release folder: {err}")
+
           def digest_of(html_text):
               return hashlib.sha256(re.sub(r"Last updated</th><td>[^<]*", "", html_text).encode()).hexdigest()
 
@@ -937,18 +1055,27 @@ jobs:
               title = CONF_TITLE.format(**fmt)[:255]
               stored = get_prop(key, PAGE_PROP) or {}
               space_id = stored.get("spaceId") or conf_space_id()
-              page = ensure_page(space_id, title, "<p>Generating release record…</p>", CONF_PARENT or None, stored.get("pageId"))
+              folder_id = folder_kind = None
+              if CONF_FOLDER_TITLE:
+                  folder_id, folder_kind = ensure_folder(key, space_id, CONF_FOLDER_TITLE.format(**fmt)[:255], stored)
+                  stored.update(folderId=folder_id, folderKind=folder_kind)
+              home = None if folder_id else (CONF_PARENT or None)   # pages go straight into the folder (via move)
+              page = ensure_page(space_id, title, "<p>Generating release record…</p>", home, stored.get("pageId"))
+              if folder_id: place_in(page, folder_id)
               page_url = f"{BASE}/wiki{page['_links']['webui']}"
               tests = tests_url = None
               tests_title = CONF_TESTS_TITLE.format(**fmt)[:255]
               if CONF_TESTS:
-                  tests = ensure_page(space_id, tests_title, "<p>Generating post-deployment plan…</p>", page["id"], stored.get("testsId"))
+                  tests = ensure_page(space_id, tests_title, "<p>Generating post-deployment plan…</p>",
+                                      None if folder_id else page["id"], stored.get("testsId"))
+                  if folder_id: place_in(tests, folder_id)
                   tests_url = f"{BASE}/wiki{tests['_links']['webui']}"
               notes = notes_url = None
               notes_title = CONF_NOTES_TITLE.format(**fmt)[:255]
               if CONF_NOTES:
-                  notes = ensure_page(space_id, notes_title, "<p>Generating release notes…</p>",
-                                      CONF_NOTES_PARENT or page["id"], stored.get("notesId"))
+                  notes_home = CONF_NOTES_PARENT or (None if folder_id else page["id"])
+                  notes = ensure_page(space_id, notes_title, "<p>Generating release notes…</p>", notes_home, stored.get("notesId"))
+                  if folder_id and not CONF_NOTES_PARENT: place_in(notes, folder_id)
                   notes_url = f"{BASE}/wiki{notes['_links']['webui']}"
 
               for _ in range(3):   # rebuild until no other repo added a PR record meanwhile
@@ -970,7 +1097,8 @@ jobs:
                       if stored.get("notesHash") != nh:
                           if write_page(notes, notes_title, ngen, HIGHLIGHTS_SLOT, extract_highlights, "Release notes"):
                               stored["notesHash"] = nh
-                  stored.update(pageId=page["id"], spaceId=space_id, testsId=tests and tests["id"], notesId=notes and notes["id"])
+                  stored.update(pageId=page["id"], spaceId=space_id, testsId=tests and tests["id"], notesId=notes and notes["id"],
+                                folderId=folder_id, folderKind=folder_kind)
                   set_prop(key, PAGE_PROP, stored)
                   now = [(r["repo"], r["number"], r["updated"]) for r in load_pr_records(key)]
                   if now == [(r["repo"], r["number"], r["updated"]) for r in recs]: break
@@ -1008,6 +1136,9 @@ jobs:
               for dup in issues[1:]: merge_into(canon, dup)
               key = canon["key"]
 
+              if not CONSOLIDATION:
+                  try: ensure_approvals(key)
+                  except JiraError as err: warn(f"Could not add the approvals table to {key}: {err}")
               upsert_link(key)
               jira("PUT", f"/rest/api/3/issue/{key}", {"update": {"labels": [{"add": REPO_LABEL}]}})
               commits = load_commits()
