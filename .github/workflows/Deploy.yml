@@ -66,12 +66,6 @@ on:
         required: false
       mqtt-cert-private-key:
         required: false
-      jira-user-email:
-        required: false
-      jira-api-token:
-        required: false
-      production-version:
-        required: false
 
 jobs:
   update_version:
@@ -254,21 +248,4 @@ jobs:
         with:
           collection: "ApiRequests/Collections/Insight-ApiGateway-Monitor.postman_collection.json"
           environment: "ApiRequests/Environments/Insight-APIGateway-Monitor [${{ inputs.environment }}].postman_environment.json"
-
-  jira-consolidation:
-    if: >-
-      (github.event_name == 'push' && github.ref_name == 'release/staging') ||
-      (github.event_name == 'pull_request' && github.event.pull_request.merged == true &&
-       github.event.pull_request.base.ref == 'release/staging')
-    permissions:
-      contents: read
-    uses: ./.github/workflows/jira-flow.yml
-    with:
-      flow: consolidation
-      jira-project-key: ${{ vars.JIRA_PROJECT_KEY }}
-      jira-base-url: ${{ vars.JIRA_BASE_URL }}
-    secrets:
-      jira-user-email: ${{ secrets.jira-user-email }}
-      jira-api-token: ${{ secrets.jira-api-token }}
-      production-version: ${{ secrets.production-version }}
 
