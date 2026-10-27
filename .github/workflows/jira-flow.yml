@@ -47,8 +47,15 @@ on:
         type: boolean
         default: false
       approved-statuses:
+        description: Comma-separated status names that count as approved (case-insensitive)
         type: string
         default: Approved
+      closed-statuses:
+        description: >
+          Comma-separated statuses that mean the change request is finished; a new ticket is created for the
+          version after that. Empty = any status in Jira's Done category.
+        type: string
+        default: ""
       include-summary:
         description: change-request only - add a change summary (stats, description, commits/feature PRs, Jira keys) to the Jira comment on open and merge
         type: boolean
@@ -213,6 +220,7 @@ jobs:
           JIRA_EXTRA_FIELDS: ${{ inputs.extra-fields }}
           REQUIRE_APPROVAL: ${{ inputs.require-approval }}
           APPROVED_STATUSES: ${{ inputs.approved-statuses }}
+          CLOSED_STATUSES: ${{ inputs.closed-statuses }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -280,6 +288,7 @@ jobs:
                         "Staging consolidation {version}" if CONSOLIDATION else "Production release {version}")
           REPO_LABEL = "repo-" + slug(REPO.split("/")[-1])
           APPROVED = {s.strip().lower() for s in env("APPROVED_STATUSES", "Approved").split(",") if s.strip()}
+          CLOSED_STATUSES = [s.strip() for s in env("CLOSED_STATUSES").split(",") if s.strip()]
           try:
               EXTRA = json.loads(env("JIRA_EXTRA_FIELDS", "{}"))
           except json.JSONDecodeError as e:
@@ -319,7 +328,9 @@ jobs:
               return {"type": "doc", "version": 1, "content": out}
 
           def find_open(reconcile=None):
-              body = {"jql": f'project = "{PROJECT}" AND labels = "{VERSION_LABEL}" AND statusCategory != Done',
+              finished = ("status not in (" + ", ".join('"' + st.replace('"', '') + '"' for st in CLOSED_STATUSES) + ")"
+                          if CLOSED_STATUSES else "statusCategory != Done")
+              body = {"jql": f'project = "{PROJECT}" AND labels = "{VERSION_LABEL}" AND {finished}',
                       "fields": ["summary", "status"], "maxResults": 50}
               if reconcile: body["reconcileIssues"] = [int(i) for i in reconcile]
               return sorted(jira("POST", "/rest/api/3/search/jql", body).get("issues", []), key=lambda i: int(i["id"]))
