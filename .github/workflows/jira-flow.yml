@@ -69,6 +69,30 @@ on:
         description: Only link keys from these Jira projects, comma-separated (e.g. "ABC,DEF"). Empty = any project.
         type: string
         default: ""
+      confluence-space-key:
+        description: >
+          change-request only - Confluence space key (e.g. REL) to publish a release-record page in.
+          The page is rebuilt on every run and linked from the Jira ticket. Defaults to IDP (IHQ Deployment Plan); pass "" to turn pages off.
+        type: string
+        default: IDP
+      confluence-parent-id:
+        description: Optional page ID to create release-record pages under
+        type: string
+        default: ""
+      confluence-title-template:
+        description: 'Page title; placeholders {key}, {summary}, {version}'
+        type: string
+        default: "Change request {key}: {summary}"
+      confluence-manual-items:
+        description: >
+          Add a "Manual release items" section: a child page created once from a template and embedded
+          in the release record. The pipeline never edits it after creating it.
+        type: boolean
+        default: true
+      confluence-manual-title-template:
+        description: 'Title of the manual-items page; placeholders {key}, {summary}, {version}'
+        type: string
+        default: "Manual release items: {key}"
       comment-on-pr:
         description: change-request only - comment the Jira link on the PR (caller needs pull-requests write)
         type: boolean
@@ -88,6 +112,8 @@ on:
         value: ${{ jobs.jira.outputs.issue-key }}
       version:
         value: ${{ jobs.jira.outputs.version }}
+      confluence-url:
+        value: ${{ jobs.jira.outputs.confluence-url }}
 
 # No permissions block: the job gets exactly what the caller grants its GITHUB_TOKEN.
 jobs:
@@ -102,6 +128,7 @@ jobs:
     outputs:
       issue-key: ${{ steps.cr.outputs.issue-key }}
       version: ${{ steps.version.outputs.version }}
+      confluence-url: ${{ steps.cr.outputs.confluence-url }}
     steps:
       - name: Check Jira credentials
         env:
@@ -135,7 +162,8 @@ jobs:
 
       - name: Collect PR changes
         if: >-
-          inputs.flow == 'change-request' && (inputs.include-summary || inputs.link-issues) &&
+          inputs.flow == 'change-request' &&
+          (inputs.include-summary || inputs.link-issues || inputs.confluence-space-key != '') &&
           github.event_name == 'pull_request' &&
           (github.event.action != 'closed' || github.event.pull_request.merged == true)
         continue-on-error: true   # a missing summary must never block the change request
@@ -184,6 +212,11 @@ jobs:
           CR_LINK_ISSUES: ${{ inputs.link-issues }}
           CR_LINK_TYPE: ${{ inputs.link-type }}
           CR_LINK_PROJECTS: ${{ inputs.link-projects }}
+          CONFLUENCE_SPACE_KEY: ${{ inputs.confluence-space-key }}
+          CONFLUENCE_PARENT_ID: ${{ inputs.confluence-parent-id }}
+          CONFLUENCE_TITLE_TEMPLATE: ${{ inputs.confluence-title-template }}
+          CONFLUENCE_MANUAL_ITEMS: ${{ inputs.confluence-manual-items }}
+          CONFLUENCE_MANUAL_TITLE_TEMPLATE: ${{ inputs.confluence-manual-title-template }}
         run: |
           python3 - <<'PY'
           import base64, json, os, random, re, sys, time, urllib.error, urllib.request
@@ -443,6 +476,231 @@ jobs:
               doc["content"].extend(summary)
               jira("POST", f"/rest/api/3/issue/{key}/comment", {"body": doc})
 
+          # --------------------------------------------------------------------------- #
+          # Confluence release record (change-request flow)
+          #   * Each PR's details are stored on the Jira ticket as an issue property
+          #     (one property per PR, so repos never overwrite each other).
+          #   * The Confluence page is rebuilt from ALL those properties on every run,
+          #     and linked back to the ticket as a web link.
+          # --------------------------------------------------------------------------- #
+          import hashlib, html, urllib.parse
+          from datetime import datetime, timezone
+
+          CONF_SPACE = env("CONFLUENCE_SPACE_KEY")
+          CONF_PARENT = env("CONFLUENCE_PARENT_ID")
+          CONF_TITLE = env("CONFLUENCE_TITLE_TEMPLATE", "Change request {key}: {summary}")
+          CONF_MANUAL = flag("CONFLUENCE_MANUAL_ITEMS")
+          CONF_MANUAL_TITLE = env("CONFLUENCE_MANUAL_TITLE_TEMPLATE", "Manual release items: {key}")
+          PR_PROP_PREFIX = "crpr."
+          MANUAL_TEMPLATE = (
+              '<p>Release steps the CI/CD pipeline does <strong>not</strong> do: manual configuration, data fixes, '
+              'feature flags, communications, sign-offs. <strong>The pipeline never changes this page</strong>; edit it freely.</p>'
+              '<table><tbody>'
+              '<tr><th>#</th><th>Item</th><th>Owner</th><th>When</th><th>Status</th><th>Notes</th></tr>'
+              '<tr><td>1</td><td><p>Example: enable feature flag new-checkout</p></td><td><p>@owner</p></td>'
+              '<td><p>After deploy</p></td><td><p>To do</p></td><td><p></p></td></tr>'
+              '</tbody></table>')
+          PAGE_PROP = "cr.confluence"
+
+          def e(s): return html.escape(str(s if s is not None else ""), quote=True)
+
+          def get_prop(key, prop):
+              try: return jira("GET", f"/rest/api/3/issue/{key}/properties/{prop}").get("value")
+              except JiraError as err:
+                  if err.code == 404: return None
+                  raise
+
+          def set_prop(key, prop, value):
+              jira("PUT", f"/rest/api/3/issue/{key}/properties/{prop}", value)
+
+          def change_items(commits):
+              items = []
+              for c in commits:
+                  lines = [l.strip() for l in c.get("msg", "").splitlines() if l.strip()]
+                  if not lines: continue
+                  subject = lines[0]
+                  m = re.match(r"Merge pull request #(\d+) from \S+", subject)
+                  if m:
+                      items.append({"ref": f"#{m.group(1)}", "url": f"{SERVER}/{REPO}/pull/{m.group(1)}",
+                                    "text": (lines[1] if len(lines) > 1 else subject)[:200], "author": c.get("author")})
+                  elif not re.match(r"Merge (remote-tracking )?branch ", subject):
+                      sha = c.get("sha", "")
+                      items.append({"ref": sha[:7], "url": f"{SERVER}/{REPO}/commit/{sha}",
+                                    "text": subject[:200], "author": c.get("author")})
+              return items
+
+          def save_pr_record(key, commits):
+              prop = PR_PROP_PREFIX + slug(REPO).replace(".", "_") + "." + PR_NUMBER
+              old = get_prop(key, prop) or {}
+              state = ("merged" if PR_MERGED else "closed") if PR_ACTION == "closed" else "open"
+              changes = change_items(commits)
+              rec = {
+                  "repo": REPO, "number": PR_NUMBER, "title": PR_TITLE[:300], "url": PR_URL, "state": state,
+                  "author": env("PR_AUTHOR"), "base": PR_BASE, "sha": SHA,
+                  "commits": env("PR_COMMITS") or old.get("commits"), "files": env("PR_CHANGED_FILES") or old.get("files"),
+                  "additions": env("PR_ADDITIONS") or old.get("additions"), "deletions": env("PR_DELETIONS") or old.get("deletions"),
+                  "description": (env("PR_BODY")[:3000]) or old.get("description", ""),
+                  # if commits couldn't be fetched this run, keep the previous list rather than blanking it
+                  "changes": changes[:100] if commits else old.get("changes", []),
+                  "changes_total": len(changes) if commits else old.get("changes_total", 0),
+                  "keys": referenced_keys(key, commits) if commits else old.get("keys", []),
+                  "updated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+              }
+              set_prop(key, prop, rec)
+
+          def load_pr_records(key):
+              keys = [p["key"] for p in (jira("GET", f"/rest/api/3/issue/{key}/properties") or {}).get("keys", [])
+                      if p["key"].startswith(PR_PROP_PREFIX)]
+              recs = [r for r in (get_prop(key, k) for k in keys) if r]
+              return sorted(recs, key=lambda r: (r["repo"], int(r["number"])))
+
+          def render_page(key, issue, recs, manual=None):
+              f = issue["fields"]
+              url = f"{BASE}/browse/{key}"
+              status = f["status"]["name"]
+              repos = sorted({r["repo"] for r in recs})
+              out = []
+              out.append('<ac:structured-macro ac:name="info"><ac:rich-text-body><p>'
+                         f'Generated automatically from <a href="{e(url)}" data-card-appearance="inline">{e(url)}</a>. '
+                         'Edits to this page are overwritten on the next pipeline run.</p></ac:rich-text-body></ac:structured-macro>')
+              out.append("<h2>Overview</h2><table><tbody>")
+              for label, val in (("Change request", f'<a href="{e(url)}">{e(key)}</a>'), ("Summary", e(f["summary"])),
+                                 ("Version", e(VERSION)), ("Status", f"<strong>{e(status)}</strong>"),
+                                 ("Repositories", e(", ".join(r.split("/")[-1] for r in repos)) or "-"),
+                                 ("Pull requests", str(len(recs))),
+                                 ("Last updated", e(datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")))):
+                  out.append(f"<tr><th>{e(label)}</th><td>{val}</td></tr>")
+              out.append("</tbody></table>")
+
+              if manual:
+                  murl = f"{BASE}/wiki/pages/viewpage.action?pageId={manual['id']}"
+                  out.append("<h2>Manual release items</h2>")
+                  out.append(f'<p>Maintained by hand on <a href="{e(murl)}">{e(manual["title"])}</a> '
+                             f'(not touched by CI/CD). <a href="{e(murl)}">Edit manual items</a></p>')
+                  out.append('<ac:structured-macro ac:name="include"><ac:parameter ac:name="">'
+                             f'<ac:link><ri:page ri:space-key="{e(CONF_SPACE)}" ri:content-title="{e(manual["title"])}" /></ac:link>'
+                             '</ac:parameter></ac:structured-macro>')
+
+              out.append("<h2>Pull requests</h2>")
+              if recs:
+                  out.append("<table><tbody><tr><th>Repository</th><th>Pull request</th><th>State</th><th>Author</th>"
+                             "<th>Size</th><th>Commit</th></tr>")
+                  for r in recs:
+                      size = f'{e(r.get("commits") or "?")} commits, {e(r.get("files") or "?")} files, ' \
+                             f'+{e(r.get("additions") or 0)} / -{e(r.get("deletions") or 0)}'
+                      out.append(f'<tr><td>{e(r["repo"])}</td><td><a href="{e(r["url"])}">#{e(r["number"])} {e(r["title"])}</a></td>'
+                                 f'<td>{e(r["state"])}</td><td>{e(r.get("author"))}</td><td>{size}</td>'
+                                 f'<td><a href="{e(SERVER)}/{e(r["repo"])}/commit/{e(r["sha"])}">{e(r["sha"][:7])}</a></td></tr>')
+                  out.append("</tbody></table>")
+              else:
+                  out.append("<p>No pull requests yet.</p>")
+
+              links = f.get("issuelinks", [])
+              out.append("<h2>Linked work items</h2>")
+              if links:
+                  out.append("<table><tbody><tr><th>Key</th><th>Summary</th><th>Status</th><th>Link</th></tr>")
+                  for l in links:
+                      side = "outwardIssue" if "outwardIssue" in l else "inwardIssue"
+                      other = l[side]; of = other.get("fields", {})
+                      rel = l["type"].get("outward" if side == "outwardIssue" else "inward", l["type"].get("name", ""))
+                      out.append(f'<tr><td><a href="{e(BASE)}/browse/{e(other["key"])}">{e(other["key"])}</a></td>'
+                                 f'<td>{e(of.get("summary"))}</td><td>{e((of.get("status") or {}).get("name"))}</td><td>{e(rel)}</td></tr>')
+                  out.append("</tbody></table>")
+              else:
+                  out.append("<p>None.</p>")
+
+              out.append("<h2>Changes by pull request</h2>")
+              for r in recs:
+                  out.append(f'<h3>{e(r["repo"])} <a href="{e(r["url"])}">#{e(r["number"])}</a>: {e(r["title"])}</h3>')
+                  desc = [c.strip() for c in re.split(r"\n\s*\n", r.get("description") or "") if c.strip()]
+                  for c in desc:
+                      out.append("<p>" + e(re.sub(r"\s*\n\s*", " ", c)) + "</p>")
+                  if r.get("changes"):
+                      out.append("<ul>")
+                      for it in r["changes"]:
+                          who = f' (@{e(it["author"])})' if it.get("author") else ""
+                          out.append(f'<li><a href="{e(it["url"])}">{e(it["ref"])}</a> {e(it["text"])}{who}</li>')
+                      extra = (r.get("changes_total") or 0) - len(r["changes"])
+                      if extra > 0: out.append(f'<li><a href="{e(r["url"])}/commits">…and {extra} more</a></li>')
+                      out.append("</ul>")
+                  if r.get("keys"):
+                      out.append("<p><strong>Referenced work items:</strong> " + ", ".join(
+                          f'<a href="{e(BASE)}/browse/{e(k)}">{e(k)}</a>' for k in r["keys"]) + "</p>")
+              return "".join(out)
+
+          def conf_space_id():
+              spaces = jira("GET", f"/wiki/api/v2/spaces?keys={urllib.parse.quote(CONF_SPACE)}").get("results", [])
+              if not spaces: raise JiraError(404, f"Confluence space '{CONF_SPACE}' not found or no access")
+              return spaces[0]["id"]
+
+          def ensure_page(space_id, title, body, parent_id=None, known_id=None):
+              """Find a page by stored id or title; create it (with `body`) only if it doesn't exist."""
+              if known_id:
+                  try: return jira("GET", f"/wiki/api/v2/pages/{known_id}")
+                  except JiraError as err:
+                      if err.code != 404: raise          # 404: page was deleted, find/recreate below
+              def by_title():
+                  q = urllib.parse.urlencode({"space-id": space_id, "title": title})
+                  return jira("GET", f"/wiki/api/v2/pages?{q}").get("results", [])
+              found = by_title()
+              if not found:
+                  payload = {"spaceId": space_id, "status": "current", "title": title,
+                             "body": {"representation": "storage", "value": body}}
+                  if parent_id: payload["parentId"] = parent_id
+                  try:
+                      p = jira("POST", "/wiki/api/v2/pages", payload)
+                      print(f"Created Confluence page {p['id']}: {title}")
+                      return p
+                  except JiraError as err:
+                      if err.code not in (400, 409): raise   # same title just created by a concurrent run
+                      found = by_title()
+                      if not found: raise
+              return jira("GET", f"/wiki/api/v2/pages/{found[0]['id']}")
+
+          def publish_confluence(key):
+              if not CONF_SPACE: return None
+              issue = jira("GET", f"/rest/api/3/issue/{key}?fields=summary,status,issuelinks")
+              fmt = dict(key=key, summary=issue["fields"]["summary"], version=VERSION)
+              title = CONF_TITLE.format(**fmt)[:255]
+              stored = get_prop(key, PAGE_PROP) or {}
+              space_id = stored.get("spaceId") or conf_space_id()
+
+              page = ensure_page(space_id, title, "<p>Generating release record…</p>", CONF_PARENT or None, stored.get("pageId"))
+              manual = None
+              if CONF_MANUAL:
+                  # Created once from the template, then never written to again by the pipeline.
+                  m = ensure_page(space_id, CONF_MANUAL_TITLE.format(**fmt)[:255], MANUAL_TEMPLATE, page["id"], stored.get("manualId"))
+                  manual = {"id": m["id"], "title": m.get("title") or CONF_MANUAL_TITLE.format(**fmt)[:255]}
+
+              for _ in range(3):   # rebuild until no other repo added a PR record meanwhile
+                  recs = load_pr_records(key)
+                  body = render_page(key, issue, recs, manual)
+                  digest = hashlib.sha256(re.sub(r"Last updated</th><td>[^<]*", "", body).encode()).hexdigest()
+                  if stored.get("hash") != digest:
+                      for attempt in range(4):
+                          version = jira("GET", f"/wiki/api/v2/pages/{page['id']}")["version"]["number"]
+                          try:
+                              jira("PUT", f"/wiki/api/v2/pages/{page['id']}", {
+                                  "id": page["id"], "status": "current", "title": title,
+                                  "body": {"representation": "storage", "value": body},
+                                  "version": {"number": version + 1, "message": f"{REPO} #{PR_NUMBER} ({PR_ACTION})"}})
+                              break
+                          except JiraError as err:
+                              if err.code != 409 or attempt == 3: raise
+                              time.sleep(random.uniform(0.5, 2))
+                  stored = {"pageId": page["id"], "manualId": manual and manual["id"], "spaceId": space_id, "hash": digest}
+                  set_prop(key, PAGE_PROP, stored)
+                  now = [(r["repo"], r["number"], r["updated"]) for r in load_pr_records(key)]
+                  if now == [(r["repo"], r["number"], r["updated"]) for r in recs]: break
+
+              page_url = f"{BASE}/wiki{page['_links']['webui']}"
+              jira("POST", f"/rest/api/3/issue/{key}/remotelink", {
+                  "globalId": f"confluence-page:{page['id']}",
+                  "relationship": "release record",
+                  "object": {"url": page_url, "title": f"Release record: {title}"[:255]}})
+              print(f"Confluence page: {page_url}")
+              return page_url
+
           def main():
               fixed = env("JIRA_ISSUE_KEY")
               if fixed:
@@ -471,15 +729,24 @@ jobs:
               linked = []
               if not CONSOLIDATION and flag("CR_LINK_ISSUES"):
                   linked, _ = link_issues(key, referenced_keys(key, commits))
+              page_url = None
+              if not CONSOLIDATION and CONF_SPACE:
+                  try:   # the release record must never block the change request
+                      save_pr_record(key, commits)
+                      page_url = publish_confluence(key)
+                  except JiraError as err:
+                      warn(f"Confluence release record not updated: {err}")
 
               status = jira("GET", f"/rest/api/3/issue/{key}?fields=status")["fields"]["status"]["name"]
               url = f"{BASE}/browse/{key}"
               created = str(created_id == canon["id"]).lower()
               with open(os.environ.get("GITHUB_OUTPUT", os.devnull), "a") as f:
                   f.write(f"issue-key={key}\nissue-url={url}\ncreated={created}\nstatus={status}\n")
+                  if page_url: f.write(f"confluence-url={page_url}\n")
               with open(os.environ.get("GITHUB_STEP_SUMMARY", os.devnull), "a") as f:
                   f.write(f"### {FLOW}: [{key}]({url})\n- Version: `{VERSION}`\n- Status: **{status}**\n")
                   if linked: f.write(f"- Linked work items added: {', '.join(linked)}\n")
+                  if page_url: f.write(f"- Release record: [Confluence page]({page_url})\n")
               print(f"[{FLOW}] {REPO} -> {key} ({status})")
 
               if not CONSOLIDATION and flag("REQUIRE_APPROVAL") and PR_ACTION != "closed" and status.lower() not in APPROVED:
@@ -501,6 +768,8 @@ jobs:
           STATUS: ${{ steps.cr.outputs.status }}
           VERSION: ${{ steps.version.outputs.version }}
           PR: ${{ github.event.pull_request.number }}
+          PAGE: ${{ steps.cr.outputs.confluence-url }}
         run: |
-          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" \
-            --body "Change request **[$KEY]($URL)** (status: $STATUS) tracks release \`$VERSION\` across all repos."
+          body="Change request **[$KEY]($URL)** (status: $STATUS) tracks release \`$VERSION\` across all repos."
+          if [ -n "$PAGE" ]; then body="$body Release record: [Confluence page]($PAGE)."; fi
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "$body"
