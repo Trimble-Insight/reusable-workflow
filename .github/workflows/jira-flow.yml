@@ -3,8 +3,9 @@
 # (top-level -> middle -> this), either explicitly or with `secrets: inherit`.
 #
 #   flow: change-request  -> PR into release/production. One ticket per version, one link per PR.
-#   flow: consolidation   -> PR MERGED into release/staging. One ticket per previous production
-#                            version, one link per REPO (no PRs).
+#   flow: consolidation   -> PR MERGED (or push) into release/staging. One ticket per previous production
+#                            version, one link per REPO (no PRs), change summary per merge, linked work
+#                            items, and a "Staging consolidation x.y.z" page in the release folder.
 name: Jira flow (reusable)
 
 on:
@@ -62,7 +63,7 @@ on:
           change-request only - roles for the Approvals table added to the ticket description (comma-separated).
           Added once; approvers fill it in and the pipeline never changes it. Empty = no table.
         type: string
-        default: "Product Manager, Team Lead, Deployment Lead, Product Owner"
+        default: "Product Manager, Engineering Manager, Team Lead, Deployment Lead, Product Owner"
       approved-statuses:
         description: Comma-separated status names that count as approved (case-insensitive)
         type: string
@@ -80,7 +81,7 @@ on:
         type: boolean
         default: true
       include-summary:
-        description: change-request only - add a change summary (stats, description, commits/feature PRs, Jira keys) to the Jira comment on open and merge
+        description: Add a change summary (stats, description, commits/feature PRs, Jira keys) to the Jira comment (change request - on open and merge; consolidation - on each merge to staging)
         type: boolean
         default: true
       summary-max-items:
@@ -88,7 +89,7 @@ on:
         type: number
         default: 30
       link-issues:
-        description: change-request only - add Jira keys found in the PR title, description and commits as linked work items
+        description: Add Jira keys found in the PR title, description and commits as linked work items (both flows)
         type: boolean
         default: true
       link-type:
@@ -101,8 +102,9 @@ on:
         default: ""
       confluence-space-key:
         description: >
-          change-request only - Confluence space key (e.g. REL) to publish a release-record page in.
-          The page is rebuilt on every run and linked from the Jira ticket. Defaults to IDP (IHQ Deployment Plan); pass "" to turn pages off.
+          Confluence space key for the release pages (change request - release record, test plan, release notes;
+          consolidation - staging page). Rebuilt on every run and linked from the Jira ticket. Defaults to IDP
+          (IHQ Deployment Plan); pass "" to turn pages off.
         type: string
         default: IDP
       confluence-folder-title-template:
@@ -121,8 +123,8 @@ on:
         default: "Change request {key}: {summary}"
       confluence-manual-items:
         description: >
-          Add a "Manual release items" table to the release record. People edit it directly on the page;
-          the pipeline keeps that section exactly as it is when it regenerates the rest of the page.
+          Add a "Manual release items" table (#, Item, Owner, When, Status, Notes) to the release record, right
+          below Overview. People edit it directly on the page; the pipeline never changes what they write.
         type: boolean
         default: true
       confluence-test-plan:
@@ -150,6 +152,16 @@ on:
         description: Optional page ID to put release notes under (default - under the release record)
         type: string
         default: ""
+      confluence-staging-page:
+        description: >
+          consolidation only - publish a "Staging consolidation" page in the release folder: repos merged, changes
+          per merge, linked work items, and a "Staging tests" table for QA that the pipeline never changes.
+        type: boolean
+        default: true
+      confluence-staging-title-template:
+        description: 'Title of the staging page; placeholders {version}, {key}, {summary}'
+        type: string
+        default: "Staging consolidation {version}"
       comment-on-pr:
         description: change-request only - comment the Jira link on the PR (caller needs pull-requests write)
         type: boolean
@@ -217,20 +229,28 @@ jobs:
           fi
           echo "version=${trimmed#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Collect PR changes
+      - name: Collect changes
         if: >-
-          inputs.flow == 'change-request' &&
           (inputs.include-summary || inputs.link-issues || inputs.confluence-space-key != '') &&
-          github.event_name == 'pull_request' &&
-          (github.event.action != 'closed' || github.event.pull_request.merged == true)
-        continue-on-error: true   # a missing summary must never block the change request
+          ((github.event_name == 'pull_request' &&
+            (github.event.action != 'closed' || github.event.pull_request.merged == true)) ||
+           (github.event_name == 'push' && inputs.flow == 'consolidation'))
+        continue-on-error: true   # a missing summary must never block the flow
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
           OUT: ${{ runner.temp }}/pr-commits.jsonl
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/commits?per_page=100" --paginate \
-            --jq '.[] | {sha: .sha, msg: .commit.message, author: (.author.login // null)} | @json' > "$OUT"
+          fields='{sha: .sha, msg: .commit.message, author: (.author.login // null)} | @json'
+          if [ -n "$PR" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/commits?per_page=100" --paginate --jq ".[] | $fields" > "$OUT"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE...$AFTER" --jq ".commits[] | $fields" > "$OUT"
+          else
+            : > "$OUT"
+          fi
           echo "Collected $(wc -l < "$OUT") commit(s)"
 
       - name: Upsert Jira ticket
@@ -284,6 +304,8 @@ jobs:
           CONFLUENCE_RELEASE_NOTES: ${{ inputs.confluence-release-notes }}
           CONFLUENCE_RELEASE_NOTES_TITLE_TEMPLATE: ${{ inputs.confluence-release-notes-title-template }}
           CONFLUENCE_RELEASE_NOTES_PARENT_ID: ${{ inputs.confluence-release-notes-parent-id }}
+          CONFLUENCE_STAGING_PAGE: ${{ inputs.confluence-staging-page }}
+          CONFLUENCE_STAGING_TITLE_TEMPLATE: ${{ inputs.confluence-staging-title-template }}
         run: |
           python3 - <<'PY'
           import base64, json, os, random, re, sys, time, urllib.error, urllib.request
@@ -413,6 +435,7 @@ jobs:
 
           PARTNER_LINK_TYPE = env("CONSOLIDATION_LINK_TYPE", "Relates")
           STAGING = {"key": None}   # consolidation ticket for this version (change-request flow), set in main()
+          CR_PARTNER = {"key": None}   # production change request for this version (consolidation flow), set in main()
 
           def find_partner():
               """The other flow's ticket for the same version: consolidation <-> change request."""
@@ -580,10 +603,11 @@ jobs:
                   return {"type": "bulletList", "content": [
                       {"type": "listItem", "content": [{"type": "paragraph", "content": it}]} for it in items]}
 
-              # Stats from the PR event payload
-              stats = [f"{env('PR_COMMITS', '?')} commits", f"{env('PR_CHANGED_FILES', '?')} files",
-                       f"+{env('PR_ADDITIONS', '0')} / -{env('PR_DELETIONS', '0')}"]
-              blocks.append(para(text("Summary: ", True), text(" · ".join(stats))))
+              # Stats from the PR event payload (not available for a plain push)
+              if env("PR_COMMITS"):
+                  stats = [f"{env('PR_COMMITS', '?')} commits", f"{env('PR_CHANGED_FILES', '?')} files",
+                           f"+{env('PR_ADDITIONS', '0')} / -{env('PR_DELETIONS', '0')}"]
+                  blocks.append(para(text("Summary: ", True), text(" · ".join(stats))))
 
               # PR description (trimmed)
               body = env("PR_BODY")
@@ -617,7 +641,8 @@ jobs:
                   blocks.append(para(text("Changes", True)))
                   shown = [[n for n in it if n.get("text")] for it in items[:cap]]
                   if len(items) > cap:
-                      shown.append([link(f"…and {len(items) - cap} more", f"{PR_URL}/commits")])
+                      more_url = f"{PR_URL}/commits" if env("PR_NUMBER") else f"{SERVER}/{REPO}/commits/{SHA}"
+                      shown.append([link(f"…and {len(items) - cap} more", more_url)])
                   blocks.append(bullets(shown))
               if keys_seen:
                   nodes = [text("Linked work items: " if flag("CR_LINK_ISSUES") else "Jira issues referenced: ", True)]
@@ -632,6 +657,7 @@ jobs:
               if CONSOLIDATION:
                   para = [f"{REPO}: merged into {PR_BASE} (", (SHORT, f"{SERVER}/{REPO}/commit/{SHA}"),
                           f") on top of production {VERSION} — ", ("run", RUN_URL)]
+                  summary = build_summary(key, commits)
               elif PR_ACTION in ("opened", "reopened", "ready_for_review"):
                   para = [f"{REPO}: PR {PR_ACTION.replace('_', ' ')} into {PR_BASE} for {VERSION} — ",
                           (f"PR #{PR_NUMBER}", PR_URL), " · ", ("run", RUN_URL)]
@@ -676,15 +702,49 @@ jobs:
                          ("Bug fixes", {"bug", "defect", "incident"}))
           PR_PROP_PREFIX = "crpr."
           MANUAL_SLOT = "<!--manual-release-items-->"
-          MANUAL_TEMPLATE = (
-              '<p>Release steps the CI/CD pipeline does <strong>not</strong> do: manual configuration, data fixes, '
-              'feature flags, communications, sign-offs. Edit this table directly: '
-              '<strong>this section is kept as-is when the pipeline updates the page.</strong></p>'
-              '<table><tbody>'
-              '<tr><th>#</th><th>Item</th><th>Owner</th><th>When</th><th>Status</th><th>Notes</th></tr>'
-              '<tr><td><p>1</p></td><td><p>Example: enable feature flag new-checkout</p></td><td><p>@owner</p></td>'
-              '<td><p>After deploy</p></td><td><p>To do</p></td><td><p></p></td></tr>'
-              '</tbody></table>')
+          _EMPTY_ROW = "".join("<td><p></p></td>" for _ in range(5))
+          MANUAL_TEMPLATE = ('<table><tbody>'
+                             '<tr><th>#</th><th>Item</th><th>Owner</th><th>When</th><th>Status</th><th>Notes</th></tr>'
+                             + "".join(f"<tr><td><p>{i}</p></td>{_EMPTY_ROW}</tr>" for i in (1, 2, 3)) +
+                             '</tbody></table>')
+
+          def _clean_manual(sec):
+              """Drop what older pipeline versions put in this section, keep anything people wrote."""
+              # old intro paragraphs
+              sec = re.sub(r"<p\b[^>]*>(?:(?!</p>).)*(?:Release steps the CI/CD pipeline|Maintained by hand on)(?:(?!</p>).)*</p>",
+                           "", sec, flags=re.S)
+              # old example row
+              sec = re.sub(r"<tr\b[^>]*>(?:(?!</tr>).)*Example: enable feature flag new-checkout(?:(?!</tr>).)*</tr>", "", sec, flags=re.S)
+              return sec.strip()
+
+          def _inline_child(sec):
+              """Older versions embedded a child page; pull its table(s) into this page instead."""
+              m = re.search(r'<ac:structured-macro\b[^>]*ac:name="include".*?</ac:structured-macro>', sec, flags=re.S)
+              if not m: return sec
+              title = re.search(r'ri:content-title="([^"]+)"', m.group(0))
+              tables = []
+              if title:
+                  try:
+                      q = urllib.parse.urlencode({"space-id": conf_space_id(), "title": html.unescape(title.group(1))})
+                      found = jira("GET", f"/wiki/api/v2/pages?{q}").get("results", [])
+                      if found:
+                          child = jira("GET", f"/wiki/api/v2/pages/{found[0]['id']}?body-format=storage")
+                          body = ((child.get("body") or {}).get("storage") or {}).get("value", "")
+                          tables = re.findall(r"<table\b.*?</table>", _clean_manual(body), flags=re.S)
+                          print(f"Copied manual items from old child page {found[0]['id']} (you can delete that page)")
+                  except JiraError as err:
+                      warn(f"Could not read the old manual-items page: {err}")
+              return sec.replace(m.group(0), "".join(tables))
+
+          def _has_rows(sec):
+              return any(len(re.findall(r"<tr\b", t)) > 1 for t in re.findall(r"<table\b.*?</table>", sec, flags=re.S))
+
+          def manual_section(sec):
+              sec = _clean_manual(_inline_child(sec))
+              if _has_rows(sec): return sec
+              # no filled-in table: keep any text people wrote, only fill a genuinely empty section
+              outside = re.sub(r"<[^>]+>|&nbsp;", "", re.sub(r"<table\b.*?</table>", "", sec, flags=re.S)).strip()
+              return sec if outside else MANUAL_TEMPLATE
 
           def _h2(title):
               # matches <h2>Title</h2>, tolerating attributes and inline tags the Confluence editor may add
@@ -695,7 +755,7 @@ jobs:
               m = _h2("Manual release items").search(body)
               if m:
                   p = _h2("Pull requests").search(body, m.end())
-                  if p: return body[m.end():p.start()]
+                  if p: return manual_section(body[m.end():p.start()])
                   return None
               # No manual heading. Fresh placeholder, or a page made before this section existed?
               if "Generating release record" in body: return MANUAL_TEMPLATE
@@ -775,7 +835,9 @@ jobs:
                                  ("Version", e(VERSION)), ("Status", f"<strong>{e(status)}</strong>"),
                                  ("Repositories", e(", ".join(r.split("/")[-1] for r in repos)) or "-"),
                                  ("Pull requests", str(len(recs))),
-                                 *([("Staging consolidation", f'<a href="{e(BASE)}/browse/{e(STAGING["key"])}">{e(STAGING["key"])}</a>')]
+                                 *([("Staging consolidation", f'<a href="{e(BASE)}/browse/{e(STAGING["key"])}">{e(STAGING["key"])}</a>'
+                                                              + (f' · <a href="{e(BASE)}/wiki/pages/viewpage.action?pageId={e(STAGING["page"])}">staging page</a>'
+                                                                 if STAGING.get("page") else ""))]
                                    if STAGING["key"] else []),
                                  *([("Post-deployment plan", f'<a href="{e(tests_url)}">Open post-deployment plan</a>')] if tests_url else []),
                                  *([("Release notes", f'<a href="{e(notes_url)}">Open release notes</a>')] if notes_url else []),
@@ -995,7 +1057,8 @@ jobs:
                       jira("PUT", f"/wiki/api/v2/pages/{page['id']}", {
                           "id": page["id"], "status": "current", "title": title,
                           "body": {"representation": "storage", "value": body},
-                          "version": {"number": cur["version"]["number"] + 1, "message": f"{REPO} #{PR_NUMBER} ({PR_ACTION})"}})
+                          "version": {"number": cur["version"]["number"] + 1,
+                                      "message": f"{REPO} {('#' + PR_NUMBER) if PR_NUMBER else SHORT} ({PR_ACTION if PR_NUMBER else 'push'})"}})
                       return True
                   except JiraError as err:
                       if err.code != 409 or attempt == 3: raise   # 409: someone saved in between, retry
@@ -1088,6 +1151,9 @@ jobs:
           def publish_confluence(key):
               if not CONF_SPACE: return None
               issue = jira("GET", f"/rest/api/3/issue/{key}?fields=summary,status,issuelinks")
+              if STAGING["key"]:
+                  try: STAGING["page"] = (get_prop(STAGING["key"], PAGE_PROP) or {}).get("pageId")
+                  except JiraError: pass
               if STAGING["key"]:   # the consolidation ticket is not a feature/fix: don't list it as a work item
                   issue["fields"]["issuelinks"] = [l for l in issue["fields"].get("issuelinks", [])
                                                    if (l.get("outwardIssue") or l.get("inwardIssue") or {}).get("key") != STAGING["key"]]
@@ -1155,6 +1221,128 @@ jobs:
               if notes_url: print(f"Release notes: {notes_url}")
               return page_url
 
+          # --------------------------------------------------------------------------- #
+          # Staging consolidation page (consolidation flow)
+          #   * One record per REPO on the consolidation ticket, holding its recent merges.
+          #   * Page "Staging consolidation x.y.z" in the same release folder; its
+          #     "Staging tests" table belongs to QA and is never changed by the pipeline.
+          # --------------------------------------------------------------------------- #
+          STG_PAGE = flag("CONFLUENCE_STAGING_PAGE")
+          STG_TITLE = env("CONFLUENCE_STAGING_TITLE_TEMPLATE", "Staging consolidation {version}")
+          STG_PROP_PREFIX = "crstg."
+          STG_SLOT = "<!--staging-tests-->"
+          STG_TEMPLATE = ('<table><tbody>'
+                          '<tr><th>#</th><th>Repository / area</th><th>Test</th><th>Tester</th><th>Result</th><th>Notes</th></tr>'
+                          + "".join(f"<tr><td><p>{i}</p></td>{_EMPTY_ROW}</tr>" for i in (1, 2, 3)) +
+                          '</tbody></table>')
+
+          def save_staging_record(key, commits):
+              prop = STG_PROP_PREFIX + slug(REPO).replace(".", "_")
+              rec = get_prop(key, prop) or {"repo": REPO, "merges": []}
+              now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+              merge = {"number": PR_NUMBER or None, "title": PR_TITLE[:200] if PR_NUMBER else "",
+                       "url": PR_URL if PR_NUMBER else "", "sha": SHA, "at": now,
+                       "changes": [dict(it, text=it["text"][:120]) for it in change_items(commits)[:15]],
+                       "changes_total": len(change_items(commits)), "keys": referenced_keys(key, commits)[:30]}
+              merges = [m for m in rec.get("merges", []) if m.get("sha") != SHA] + [merge]
+              rec.update(repo=REPO, merges=merges[-8:], updated=now)
+              while len(json.dumps(rec)) > 30000 and len(rec["merges"]) > 1:   # Jira property size limit
+                  rec["merges"] = rec["merges"][1:]
+              set_prop(key, prop, rec)
+
+          def load_staging_records(key):
+              keys = [p["key"] for p in (jira("GET", f"/rest/api/3/issue/{key}/properties") or {}).get("keys", [])
+                      if p["key"].startswith(STG_PROP_PREFIX)]
+              return sorted([r for r in (get_prop(key, k) for k in keys) if r], key=lambda r: r["repo"])
+
+          def extract_staging(body):
+              m = _h2("Staging tests").search(body)
+              if m:
+                  p = _h2("Merged to staging").search(body, m.end())
+                  if not p: return None
+                  sec = body[m.end():p.start()]
+                  return sec if re.sub(r"<[^>]+>|&nbsp;|\s", "", sec) or "<table" in sec else STG_TEMPLATE
+              if "Generating staging page" in body: return STG_TEMPLATE
+              return None
+
+          def render_staging(key, issue, recs, cr_key):
+              f = issue["fields"]
+              url = f"{BASE}/browse/{key}"
+              merges = sum(len(r.get("merges", [])) for r in recs)
+              out = ['<ac:structured-macro ac:name="info"><ac:rich-text-body><p>'
+                     f'Generated automatically from <a href="{e(url)}" data-card-appearance="inline">{e(url)}</a>. '
+                     'Everything except the <strong>Staging tests</strong> table is regenerated on each merge to staging.'
+                     '</p></ac:rich-text-body></ac:structured-macro>']
+              rows = [("Consolidation ticket", f'<a href="{e(url)}">{e(key)}</a>'), ("Summary", e(f["summary"])),
+                      ("On top of production", e(VERSION)), ("Status", f'<strong>{e(f["status"]["name"])}</strong>')]
+              if cr_key: rows.append(("Production change request", f'<a href="{e(BASE)}/browse/{e(cr_key)}">{e(cr_key)}</a>'))
+              rows += [("Repositories merged", e(", ".join(r["repo"].split("/")[-1] for r in recs)) or "-"),
+                       ("Merges recorded", str(merges)),
+                       ("Last updated", e(datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")))]
+              out.append("<h2>Overview</h2><table><tbody>" + "".join(f"<tr><th>{e(a)}</th><td>{b}</td></tr>" for a, b in rows)
+                         + "</tbody></table>")
+              out.append("<h2>Staging tests</h2>" + STG_SLOT)
+              out.append("<h2>Merged to staging</h2>")
+              if recs:
+                  out.append("<table><tbody><tr><th>Repository</th><th>Merges</th><th>Last merged</th><th>Commit</th><th>Last PR</th></tr>")
+                  for r in recs:
+                      last = r["merges"][-1]
+                      pr = f'<a href="{e(last["url"])}">#{e(last["number"])} {e(last["title"])}</a>' if last.get("number") else "-"
+                      out.append(f'<tr><td>{e(r["repo"].split("/")[-1])}</td><td>{len(r["merges"])}</td><td>{e(last["at"])}</td>'
+                                 f'<td><a href="{e(SERVER)}/{e(r["repo"])}/commit/{e(last["sha"])}">{e(last["sha"][:7])}</a></td><td>{pr}</td></tr>')
+                  out.append("</tbody></table>")
+              else:
+                  out.append("<p>Nothing merged yet.</p>")
+              out.append("<h2>Changes by repository</h2>")
+              for r in recs:
+                  out.append(f'<h3>{e(r["repo"].split("/")[-1])}</h3>')
+                  for m in reversed(r["merges"]):
+                      ref = (f'<a href="{e(m["url"])}">#{e(m["number"])}</a> {e(m["title"])}' if m.get("number")
+                             else f'<a href="{e(SERVER)}/{e(r["repo"])}/commit/{e(m["sha"])}">{e(m["sha"][:7])}</a>')
+                      out.append(f"<p><strong>{e(m['at'])}</strong> · {ref}</p>")
+                      if m.get("changes"):
+                          out.append("<ul>" + "".join(f'<li><a href="{e(it["url"])}">{e(it["ref"])}</a> {e(it["text"])}</li>'
+                                                      for it in m["changes"]))
+                          extra = (m.get("changes_total") or 0) - len(m["changes"])
+                          if extra > 0: out.append(f"<li>…and {extra} more</li>")
+                          out.append("</ul>")
+                      if m.get("keys"):
+                          out.append("<p>Work items: " + ", ".join(f'<a href="{e(BASE)}/browse/{e(k)}">{e(k)}</a>' for k in m["keys"]) + "</p>")
+              out.append("<h2>Linked work items</h2>" + linked_items_html(issue))
+              return "".join(out)
+
+          def publish_staging(key):
+              if not CONF_SPACE or not STG_PAGE: return None
+              issue = jira("GET", f"/rest/api/3/issue/{key}?fields=summary,status,issuelinks")
+              if CR_PARTNER["key"]:   # the production change request is not a work item
+                  issue["fields"]["issuelinks"] = [l for l in issue["fields"].get("issuelinks", [])
+                                                   if (l.get("outwardIssue") or l.get("inwardIssue") or {}).get("key") != CR_PARTNER["key"]]
+              fmt = dict(key=key, summary=issue["fields"]["summary"], version=VERSION)
+              title = STG_TITLE.format(**fmt)[:255]
+              stored = get_prop(key, PAGE_PROP) or {}
+              space_id = stored.get("spaceId") or conf_space_id()
+              folder_id = folder_kind = None
+              if CONF_FOLDER_TITLE:
+                  folder_id, folder_kind = ensure_folder(key, space_id, CONF_FOLDER_TITLE.format(**fmt)[:255], stored)
+              page = ensure_page(space_id, title, "<p>Generating staging page…</p>",
+                                 None if folder_id else (CONF_PARENT or None), stored.get("pageId"))
+              if folder_id: place_in(page, folder_id)
+              for _ in range(3):
+                  recs = load_staging_records(key)
+                  gen = render_staging(key, issue, recs, CR_PARTNER["key"])
+                  h = digest_of(gen)
+                  if stored.get("hash") != h and write_page(page, title, gen, STG_SLOT, extract_staging, "Staging page"):
+                      stored["hash"] = h
+                  stored.update(pageId=page["id"], spaceId=space_id, folderId=folder_id, folderKind=folder_kind)
+                  set_prop(key, PAGE_PROP, stored)
+                  if [(r["repo"], r["updated"]) for r in load_staging_records(key)] == [(r["repo"], r["updated"]) for r in recs]: break
+              page_url = f"{BASE}/wiki{page['_links']['webui']}"
+              jira("POST", f"/rest/api/3/issue/{key}/remotelink", {
+                  "globalId": f"confluence-page:{page['id']}", "relationship": "staging page",
+                  "object": {"url": page_url, "title": title if title.lower().startswith("staging") else f"Staging page: {title}"}})
+              print(f"Staging page: {page_url}")
+              return page_url
+
           def main():
               fixed = env("JIRA_ISSUE_KEY")
               if fixed:
@@ -1182,13 +1370,13 @@ jobs:
               upsert_link(key)
               try:
                   partner = link_partner(key)
-                  if not CONSOLIDATION: STAGING["key"] = partner
+                  (CR_PARTNER if CONSOLIDATION else STAGING)["key"] = partner
               except JiraError as err: warn(f"Could not link the consolidation/change request tickets: {err}")
               jira("PUT", f"/rest/api/3/issue/{key}", {"update": {"labels": [{"add": REPO_LABEL}]}})
               commits = load_commits()
               comment(key, commits)
               linked = []
-              if not CONSOLIDATION and flag("CR_LINK_ISSUES"):
+              if flag("CR_LINK_ISSUES"):
                   linked, _ = link_issues(key, referenced_keys(key, commits))
               page_url = None
               if not CONSOLIDATION and CONF_SPACE:
@@ -1197,6 +1385,12 @@ jobs:
                       page_url = publish_confluence(key)
                   except JiraError as err:
                       warn(f"Confluence release record not updated: {err}")
+              if CONSOLIDATION and CONF_SPACE and STG_PAGE:
+                  try:   # the staging page must never fail the run
+                      save_staging_record(key, commits)
+                      page_url = publish_staging(key)
+                  except JiraError as err:
+                      warn(f"Confluence staging page not updated: {err}")
 
               status = jira("GET", f"/rest/api/3/issue/{key}?fields=status")["fields"]["status"]["name"]
               url = f"{BASE}/browse/{key}"
