@@ -85,14 +85,35 @@ on:
         default: "Change request {key}: {summary}"
       confluence-manual-items:
         description: >
-          Add a "Manual release items" section: a child page created once from a template and embedded
-          in the release record. The pipeline never edits it after creating it.
+          Add a "Manual release items" table to the release record. People edit it directly on the page;
+          the pipeline keeps that section exactly as it is when it regenerates the rest of the page.
         type: boolean
         default: true
-      confluence-manual-title-template:
-        description: 'Title of the manual-items page; placeholders {key}, {summary}, {version}'
+      confluence-test-plan:
+        description: >
+          Create a "Post-deployment plan" page (child of the release record) for the test team: what to test is
+          regenerated; the Smoke tests and Sign-off sections are theirs and are never changed by the pipeline.
+        type: boolean
+        default: true
+      confluence-test-plan-title-template:
+        description: 'Title of the post-deployment plan page; placeholders {key}, {summary}, {version}'
         type: string
-        default: "Manual release items: {key}"
+        default: "Post-deployment plan {key}: {summary}"
+      confluence-release-notes:
+        description: >
+          Create a "Release notes" page for product management: changes grouped from the linked work items
+          (New features / Improvements / Bug fixes / Other) plus feature PRs without a ticket. Its Highlights
+          section is written by product management and never changed by the pipeline.
+        type: boolean
+        default: true
+      confluence-release-notes-title-template:
+        description: 'Title of the release notes page; placeholders {key}, {summary}, {version}'
+        type: string
+        default: "Release notes {version} ({key})"
+      confluence-release-notes-parent-id:
+        description: Optional page ID to put release notes under (default - under the release record)
+        type: string
+        default: ""
       comment-on-pr:
         description: change-request only - comment the Jira link on the PR (caller needs pull-requests write)
         type: boolean
@@ -216,7 +237,11 @@ jobs:
           CONFLUENCE_PARENT_ID: ${{ inputs.confluence-parent-id }}
           CONFLUENCE_TITLE_TEMPLATE: ${{ inputs.confluence-title-template }}
           CONFLUENCE_MANUAL_ITEMS: ${{ inputs.confluence-manual-items }}
-          CONFLUENCE_MANUAL_TITLE_TEMPLATE: ${{ inputs.confluence-manual-title-template }}
+          CONFLUENCE_TEST_PLAN: ${{ inputs.confluence-test-plan }}
+          CONFLUENCE_TEST_PLAN_TITLE_TEMPLATE: ${{ inputs.confluence-test-plan-title-template }}
+          CONFLUENCE_RELEASE_NOTES: ${{ inputs.confluence-release-notes }}
+          CONFLUENCE_RELEASE_NOTES_TITLE_TEMPLATE: ${{ inputs.confluence-release-notes-title-template }}
+          CONFLUENCE_RELEASE_NOTES_PARENT_ID: ${{ inputs.confluence-release-notes-parent-id }}
         run: |
           python3 - <<'PY'
           import base64, json, os, random, re, sys, time, urllib.error, urllib.request
@@ -490,16 +515,50 @@ jobs:
           CONF_PARENT = env("CONFLUENCE_PARENT_ID")
           CONF_TITLE = env("CONFLUENCE_TITLE_TEMPLATE", "Change request {key}: {summary}")
           CONF_MANUAL = flag("CONFLUENCE_MANUAL_ITEMS")
-          CONF_MANUAL_TITLE = env("CONFLUENCE_MANUAL_TITLE_TEMPLATE", "Manual release items: {key}")
+          CONF_TESTS = flag("CONFLUENCE_TEST_PLAN")
+          CONF_TESTS_TITLE = env("CONFLUENCE_TEST_PLAN_TITLE_TEMPLATE", "Post-deployment plan {key}: {summary}")
+          TESTS_SLOT = "<!--smoke-tests-->"
+          CONF_NOTES = flag("CONFLUENCE_RELEASE_NOTES")
+          CONF_NOTES_TITLE = env("CONFLUENCE_RELEASE_NOTES_TITLE_TEMPLATE", "Release notes {version} ({key})")
+          CONF_NOTES_PARENT = env("CONFLUENCE_RELEASE_NOTES_PARENT_ID")
+          HIGHLIGHTS_SLOT = "<!--highlights-->"
+          HIGHLIGHTS_TEMPLATE = ('<p><em>Product management: write a short, customer-friendly summary of this release here '
+                                 '(what\'s new and why it matters). This section is kept as-is by the pipeline.</em></p>'
+                                 '<ul><li><p></p></li></ul>')
+          NOTE_GROUPS = (("New features", {"story", "epic", "feature", "new feature"}),
+                         ("Improvements", {"improvement", "enhancement", "task", "sub-task", "subtask", "change"}),
+                         ("Bug fixes", {"bug", "defect", "incident"}))
           PR_PROP_PREFIX = "crpr."
+          MANUAL_SLOT = "<!--manual-release-items-->"
           MANUAL_TEMPLATE = (
               '<p>Release steps the CI/CD pipeline does <strong>not</strong> do: manual configuration, data fixes, '
-              'feature flags, communications, sign-offs. <strong>The pipeline never changes this page</strong>; edit it freely.</p>'
+              'feature flags, communications, sign-offs. Edit this table directly: '
+              '<strong>this section is kept as-is when the pipeline updates the page.</strong></p>'
               '<table><tbody>'
               '<tr><th>#</th><th>Item</th><th>Owner</th><th>When</th><th>Status</th><th>Notes</th></tr>'
-              '<tr><td>1</td><td><p>Example: enable feature flag new-checkout</p></td><td><p>@owner</p></td>'
+              '<tr><td><p>1</p></td><td><p>Example: enable feature flag new-checkout</p></td><td><p>@owner</p></td>'
               '<td><p>After deploy</p></td><td><p>To do</p></td><td><p></p></td></tr>'
               '</tbody></table>')
+
+          def _h2(title):
+              # matches <h2>Title</h2>, tolerating attributes and inline tags the Confluence editor may add
+              return re.compile(r"<h2\b[^>]*>\s*(?:<[^>]+>\s*)*" + re.escape(title) + r"\s*(?:</[^>]+>\s*)*</h2>", re.I)
+
+          def extract_manual(body):
+              """Current content of the Manual release items section, or None if it can't be located safely."""
+              m = _h2("Manual release items").search(body)
+              if m:
+                  p = _h2("Pull requests").search(body, m.end())
+                  if p: return body[m.end():p.start()]
+                  return None
+              # No manual heading. Fresh placeholder, or a page made before this section existed?
+              if "Generating release record" in body: return MANUAL_TEMPLATE
+              o, p = _h2("Overview").search(body), _h2("Pull requests").search(body)
+              if o and p:
+                  t = body.find("</table>", o.end())
+                  between = body[t + len("</table>"):p.start()].strip() if 0 <= t < p.start() else "?"
+                  if not between: return MANUAL_TEMPLATE     # older generated page: safe to add the section
+              return None   # heading renamed/removed by someone: don't guess, don't overwrite
           PAGE_PROP = "cr.confluence"
 
           def e(s): return html.escape(str(s if s is not None else ""), quote=True)
@@ -554,7 +613,7 @@ jobs:
               recs = [r for r in (get_prop(key, k) for k in keys) if r]
               return sorted(recs, key=lambda r: (r["repo"], int(r["number"])))
 
-          def render_page(key, issue, recs, manual=None):
+          def render_page(key, issue, recs, tests_url=None, notes_url=None):
               f = issue["fields"]
               url = f"{BASE}/browse/{key}"
               status = f["status"]["name"]
@@ -562,24 +621,22 @@ jobs:
               out = []
               out.append('<ac:structured-macro ac:name="info"><ac:rich-text-body><p>'
                          f'Generated automatically from <a href="{e(url)}" data-card-appearance="inline">{e(url)}</a>. '
-                         'Edits to this page are overwritten on the next pipeline run.</p></ac:rich-text-body></ac:structured-macro>')
+                         + ('Everything except the <strong>Manual release items</strong> section is regenerated on each pipeline run.'
+                            if CONF_MANUAL else 'Edits to this page are overwritten on the next pipeline run.')
+                         + '</p></ac:rich-text-body></ac:structured-macro>')
               out.append("<h2>Overview</h2><table><tbody>")
               for label, val in (("Change request", f'<a href="{e(url)}">{e(key)}</a>'), ("Summary", e(f["summary"])),
                                  ("Version", e(VERSION)), ("Status", f"<strong>{e(status)}</strong>"),
                                  ("Repositories", e(", ".join(r.split("/")[-1] for r in repos)) or "-"),
                                  ("Pull requests", str(len(recs))),
+                                 *([("Post-deployment plan", f'<a href="{e(tests_url)}">Open post-deployment plan</a>')] if tests_url else []),
+                                 *([("Release notes", f'<a href="{e(notes_url)}">Open release notes</a>')] if notes_url else []),
                                  ("Last updated", e(datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")))):
                   out.append(f"<tr><th>{e(label)}</th><td>{val}</td></tr>")
               out.append("</tbody></table>")
 
-              if manual:
-                  murl = f"{BASE}/wiki/pages/viewpage.action?pageId={manual['id']}"
-                  out.append("<h2>Manual release items</h2>")
-                  out.append(f'<p>Maintained by hand on <a href="{e(murl)}">{e(manual["title"])}</a> '
-                             f'(not touched by CI/CD). <a href="{e(murl)}">Edit manual items</a></p>')
-                  out.append('<ac:structured-macro ac:name="include"><ac:parameter ac:name="">'
-                             f'<ac:link><ri:page ri:space-key="{e(CONF_SPACE)}" ri:content-title="{e(manual["title"])}" /></ac:link>'
-                             '</ac:parameter></ac:structured-macro>')
+              if CONF_MANUAL:
+                  out.append("<h2>Manual release items</h2>" + MANUAL_SLOT)
 
               out.append("<h2>Pull requests</h2>")
               if recs:
@@ -628,6 +685,174 @@ jobs:
                           f'<a href="{e(BASE)}/browse/{e(k)}">{e(k)}</a>' for k in r["keys"]) + "</p>")
               return "".join(out)
 
+          def linked_items_html(issue):
+              links = issue["fields"].get("issuelinks", [])
+              if not links: return "<p>None.</p>"
+              out = ["<table><tbody><tr><th>Key</th><th>Summary</th><th>Status</th><th>Link</th></tr>"]
+              for l in links:
+                  side = "outwardIssue" if "outwardIssue" in l else "inwardIssue"
+                  other = l[side]; of = other.get("fields", {})
+                  rel = l["type"].get("outward" if side == "outwardIssue" else "inward", l["type"].get("name", ""))
+                  out.append(f'<tr><td><a href="{e(BASE)}/browse/{e(other["key"])}">{e(other["key"])}</a></td>'
+                             f'<td>{e(of.get("summary"))}</td><td>{e((of.get("status") or {}).get("name"))}</td><td>{e(rel)}</td></tr>')
+              out.append("</tbody></table>")
+              return "".join(out)
+
+          def tests_template(recs):
+              repos = sorted({r["repo"] for r in recs})
+              rows = repos or ["(component)"]
+              out = ['<h2>Smoke tests</h2>',
+                     '<p>For the test team to run <strong>after deployment</strong>. Add, change or remove rows freely: '
+                     '<strong>this section and everything below it are kept as-is by the pipeline.</strong> '
+                     'Repos added to the release later are listed under "What to test" above; add rows for them here.</p>',
+                     '<table><tbody><tr><th>#</th><th>Repository / area</th><th>Test</th><th>Expected result</th>'
+                     '<th>Tester</th><th>Result</th><th>Notes</th></tr>']
+              for i, repo in enumerate(rows, 1):
+                  out.append(f'<tr><td><p>{i}</p></td><td><p>{e(repo.split("/")[-1])}</p></td><td><p>Smoke test after deploy</p></td>'
+                             '<td><p></p></td><td><p></p></td><td><p>Not run</p></td><td><p></p></td></tr>')
+              out.append('</tbody></table>')
+              out.append('<h2>Sign-off</h2><table><tbody><tr><th>Tested by</th><th>Date</th><th>Outcome</th><th>Notes</th></tr>'
+                         '<tr><td><p></p></td><td><p></p></td><td><p>Pass / Fail / Pass with issues</p></td><td><p></p></td></tr>'
+                         '</tbody></table>')
+              return "".join(out)
+
+          def extract_tests(body, recs):
+              """Everything from the Smoke tests heading to the end of the page (owned by the test team)."""
+              m = _h2("Smoke tests").search(body)
+              if m: return body[m.start():]
+              if "Generating post-deployment plan" in body: return tests_template(recs)
+              return None
+
+          def render_test_page(key, issue, recs, record_url):
+              f = issue["fields"]
+              url = f"{BASE}/browse/{key}"
+              out = ['<ac:structured-macro ac:name="info"><ac:rich-text-body><p>'
+                     f'Post-deployment plan for <a href="{e(url)}" data-card-appearance="inline">{e(url)}</a>. '
+                     'The sections above <strong>Smoke tests</strong> are regenerated by the pipeline; '
+                     '<strong>Smoke tests</strong> and <strong>Sign-off</strong> belong to the test team and are never changed.'
+                     '</p></ac:rich-text-body></ac:structured-macro>']
+              out.append("<h2>Release</h2><table><tbody>")
+              rows = [("Change request", f'<a href="{e(url)}">{e(key)}</a>'), ("Summary", e(f["summary"])),
+                      ("Version", e(VERSION)), ("Status", f'<strong>{e(f["status"]["name"])}</strong>')]
+              if record_url: rows.append(("Release record", f'<a href="{e(record_url)}">Open release record</a>'))
+              rows += [("Repositories", e(", ".join(sorted({r["repo"].split("/")[-1] for r in recs}))) or "-"),
+                       ("Last updated", e(datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")))]
+              out += [f"<tr><th>{e(a)}</th><td>{b}</td></tr>" for a, b in rows]
+              out.append("</tbody></table>")
+
+              out.append("<h2>What to test</h2>")
+              if not recs: out.append("<p>No pull requests yet.</p>")
+              for r in recs:
+                  out.append(f'<h3>{e(r["repo"].split("/")[-1])}: <a href="{e(r["url"])}">#{e(r["number"])} {e(r["title"])}</a> '
+                             f'({e(r["state"])})</h3>')
+                  changes = r.get("changes") or []
+                  if changes:
+                      out.append("<ul>")
+                      for it in changes[:15]:
+                          out.append(f'<li><a href="{e(it["url"])}">{e(it["ref"])}</a> {e(it["text"])}</li>')
+                      extra = (r.get("changes_total") or len(changes)) - min(len(changes), 15)
+                      if extra > 0: out.append(f'<li><a href="{e(r["url"])}/commits">…and {extra} more</a></li>')
+                      out.append("</ul>")
+                  if r.get("keys"):
+                      out.append("<p><strong>Work items to verify:</strong> " + ", ".join(
+                          f'<a href="{e(BASE)}/browse/{e(k)}">{e(k)}</a>' for k in r["keys"]) + "</p>")
+              out.append("<h2>Linked work items</h2>" + linked_items_html(issue))
+              out.append(TESTS_SLOT)
+              return "".join(out)
+
+          def extract_highlights(body):
+              m = _h2("Highlights").search(body)
+              if m:
+                  p = _h2("Changes in this release").search(body, m.end())
+                  return body[m.end():p.start()] if p else None
+              if "Generating release notes" in body: return HIGHLIGHTS_TEMPLATE
+              return None
+
+          def render_notes(key, issue, recs, record_url):
+              f = issue["fields"]
+              url = f"{BASE}/browse/{key}"
+              merged = sum(1 for r in recs if r["state"] == "merged")
+              out = ['<ac:structured-macro ac:name="info"><ac:rich-text-body><p>'
+                     f'Release notes generated from <a href="{e(url)}" data-card-appearance="inline">{e(url)}</a>. '
+                     '<strong>Highlights</strong> is written by product management and never changed by the pipeline; '
+                     'the rest is regenerated from the linked work items.</p></ac:rich-text-body></ac:structured-macro>']
+              out.append("<h2>Release</h2><table><tbody>")
+              rows = [("Version", f"<strong>{e(VERSION)}</strong>"), ("Change request", f'<a href="{e(url)}">{e(key)}</a>'),
+                      ("Status", e(f["status"]["name"])),
+                      ("Deployed", f"{merged} of {len(recs)} pull requests merged" if recs else "-"),
+                      ("Components", e(", ".join(sorted({r["repo"].split("/")[-1] for r in recs}))) or "-")]
+              if record_url: rows.append(("Release record", f'<a href="{e(record_url)}">Open release record</a>'))
+              rows.append(("Last updated", e(datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"))))
+              out += [f"<tr><th>{e(a)}</th><td>{b}</td></tr>" for a, b in rows]
+              out.append("</tbody></table>")
+
+              out.append("<h2>Highlights</h2>" + HIGHLIGHTS_SLOT)
+
+              out.append("<h2>Changes in this release</h2>")
+              groups = {name: [] for name, _ in NOTE_GROUPS}; groups["Other"] = []
+              linked_keys = set()
+              for l in f.get("issuelinks", []):
+                  other = l.get("outwardIssue") or l.get("inwardIssue")
+                  of = other.get("fields", {})
+                  linked_keys.add(other["key"])
+                  itype = ((of.get("issuetype") or {}).get("name") or "").lower()
+                  target = next((name for name, types in NOTE_GROUPS if itype in types), "Other")
+                  groups[target].append(other)
+              any_items = False
+              for name in [g for g, _ in NOTE_GROUPS] + ["Other"]:
+                  if not groups[name]: continue
+                  any_items = True
+                  out.append(f"<h3>{e(name)}</h3><ul>")
+                  for o in sorted(groups[name], key=lambda x: x["key"]):
+                      of = o.get("fields", {})
+                      out.append(f'<li><a href="{e(BASE)}/browse/{e(o["key"])}">{e(o["key"])}</a> {e(of.get("summary"))}'
+                                 f' <em>({e((of.get("status") or {}).get("name"))})</em></li>')
+                  out.append("</ul>")
+              # Feature PRs that don't mention any linked ticket
+              untracked, seen = [], set()
+              for r in recs:
+                  for it in r.get("changes") or []:
+                      if not it["ref"].startswith("#"): continue           # feature PRs only, not raw commits
+                      if any(k in it["text"] for k in linked_keys) or it["text"] in seen: continue
+                      seen.add(it["text"]); untracked.append((r["repo"].split("/")[-1], it))
+              if untracked:
+                  any_items = True
+                  out.append("<h3>Other changes (no linked ticket)</h3><ul>")
+                  for repo, it in untracked:
+                      out.append(f'<li>{e(it["text"])} <em>({e(repo)}, <a href="{e(it["url"])}">{e(it["ref"])}</a>)</em></li>')
+                  out.append("</ul>")
+              if not any_items: out.append("<p>No changes recorded yet.</p>")
+
+              out.append("<h2>Components</h2>")
+              if recs:
+                  out.append("<ul>" + "".join(
+                      f'<li>{e(r["repo"].split("/")[-1])}: <a href="{e(r["url"])}">#{e(r["number"])}</a> ({e(r["state"])})</li>'
+                      for r in recs) + "</ul>")
+              else:
+                  out.append("<p>-</p>")
+              return "".join(out)
+
+          def write_page(page, title, generated, slot, extract, label):
+              """Write `generated`, re-inserting the people-owned part read from the live page. False = refused."""
+              for attempt in range(4):
+                  cur = jira("GET", f"/wiki/api/v2/pages/{page['id']}?body-format=storage")
+                  live = ((cur.get("body") or {}).get("storage") or {}).get("value", "")
+                  keep = extract(live) if slot else ""
+                  if slot and keep is None:
+                      warn(f"{label} not updated: a heading that marks the hand-edited section was renamed or removed. "
+                           "Restore the heading name (or the previous page version).")
+                      return False
+                  body = generated.replace(slot, keep) if slot else generated
+                  try:
+                      jira("PUT", f"/wiki/api/v2/pages/{page['id']}", {
+                          "id": page["id"], "status": "current", "title": title,
+                          "body": {"representation": "storage", "value": body},
+                          "version": {"number": cur["version"]["number"] + 1, "message": f"{REPO} #{PR_NUMBER} ({PR_ACTION})"}})
+                      return True
+                  except JiraError as err:
+                      if err.code != 409 or attempt == 3: raise   # 409: someone saved in between, retry
+                      time.sleep(random.uniform(0.5, 2))
+
           def conf_space_id():
               spaces = jira("GET", f"/wiki/api/v2/spaces?keys={urllib.parse.quote(CONF_SPACE)}").get("results", [])
               if not spaces: raise JiraError(404, f"Confluence space '{CONF_SPACE}' not found or no access")
@@ -657,6 +882,9 @@ jobs:
                       if not found: raise
               return jira("GET", f"/wiki/api/v2/pages/{found[0]['id']}")
 
+          def digest_of(html_text):
+              return hashlib.sha256(re.sub(r"Last updated</th><td>[^<]*", "", html_text).encode()).hexdigest()
+
           def publish_confluence(key):
               if not CONF_SPACE: return None
               issue = jira("GET", f"/rest/api/3/issue/{key}?fields=summary,status,issuelinks")
@@ -664,41 +892,54 @@ jobs:
               title = CONF_TITLE.format(**fmt)[:255]
               stored = get_prop(key, PAGE_PROP) or {}
               space_id = stored.get("spaceId") or conf_space_id()
-
               page = ensure_page(space_id, title, "<p>Generating release record…</p>", CONF_PARENT or None, stored.get("pageId"))
-              manual = None
-              if CONF_MANUAL:
-                  # Created once from the template, then never written to again by the pipeline.
-                  m = ensure_page(space_id, CONF_MANUAL_TITLE.format(**fmt)[:255], MANUAL_TEMPLATE, page["id"], stored.get("manualId"))
-                  manual = {"id": m["id"], "title": m.get("title") or CONF_MANUAL_TITLE.format(**fmt)[:255]}
+              page_url = f"{BASE}/wiki{page['_links']['webui']}"
+              tests = tests_url = None
+              tests_title = CONF_TESTS_TITLE.format(**fmt)[:255]
+              if CONF_TESTS:
+                  tests = ensure_page(space_id, tests_title, "<p>Generating post-deployment plan…</p>", page["id"], stored.get("testsId"))
+                  tests_url = f"{BASE}/wiki{tests['_links']['webui']}"
+              notes = notes_url = None
+              notes_title = CONF_NOTES_TITLE.format(**fmt)[:255]
+              if CONF_NOTES:
+                  notes = ensure_page(space_id, notes_title, "<p>Generating release notes…</p>",
+                                      CONF_NOTES_PARENT or page["id"], stored.get("notesId"))
+                  notes_url = f"{BASE}/wiki{notes['_links']['webui']}"
 
               for _ in range(3):   # rebuild until no other repo added a PR record meanwhile
                   recs = load_pr_records(key)
-                  body = render_page(key, issue, recs, manual)
-                  digest = hashlib.sha256(re.sub(r"Last updated</th><td>[^<]*", "", body).encode()).hexdigest()
-                  if stored.get("hash") != digest:
-                      for attempt in range(4):
-                          version = jira("GET", f"/wiki/api/v2/pages/{page['id']}")["version"]["number"]
-                          try:
-                              jira("PUT", f"/wiki/api/v2/pages/{page['id']}", {
-                                  "id": page["id"], "status": "current", "title": title,
-                                  "body": {"representation": "storage", "value": body},
-                                  "version": {"number": version + 1, "message": f"{REPO} #{PR_NUMBER} ({PR_ACTION})"}})
-                              break
-                          except JiraError as err:
-                              if err.code != 409 or attempt == 3: raise
-                              time.sleep(random.uniform(0.5, 2))
-                  stored = {"pageId": page["id"], "manualId": manual and manual["id"], "spaceId": space_id, "hash": digest}
+                  gen = render_page(key, issue, recs, tests_url, notes_url)
+                  h = digest_of(gen)
+                  if stored.get("hash") != h:
+                      if write_page(page, title, gen, MANUAL_SLOT if CONF_MANUAL else None, extract_manual, "Release record"):
+                          stored["hash"] = h
+                  if tests:
+                      tgen = render_test_page(key, issue, recs, page_url)
+                      th = digest_of(tgen)
+                      if stored.get("testsHash") != th:
+                          if write_page(tests, tests_title, tgen, TESTS_SLOT, lambda b: extract_tests(b, recs), "Post-deployment plan"):
+                              stored["testsHash"] = th
+                  if notes:
+                      ngen = render_notes(key, issue, recs, page_url)
+                      nh = digest_of(ngen)
+                      if stored.get("notesHash") != nh:
+                          if write_page(notes, notes_title, ngen, HIGHLIGHTS_SLOT, extract_highlights, "Release notes"):
+                              stored["notesHash"] = nh
+                  stored.update(pageId=page["id"], spaceId=space_id, testsId=tests and tests["id"], notesId=notes and notes["id"])
                   set_prop(key, PAGE_PROP, stored)
                   now = [(r["repo"], r["number"], r["updated"]) for r in load_pr_records(key)]
                   if now == [(r["repo"], r["number"], r["updated"]) for r in recs]: break
 
-              page_url = f"{BASE}/wiki{page['_links']['webui']}"
-              jira("POST", f"/rest/api/3/issue/{key}/remotelink", {
-                  "globalId": f"confluence-page:{page['id']}",
-                  "relationship": "release record",
-                  "object": {"url": page_url, "title": f"Release record: {title}"[:255]}})
+              for pid, url_, label, t in ((page["id"], page_url, "Release record", title),
+                                          (tests and tests["id"], tests_url, "Post-deployment plan", tests_title),
+                                          (notes and notes["id"], notes_url, "Release notes", notes_title)):
+                  if pid:
+                      jira("POST", f"/rest/api/3/issue/{key}/remotelink", {
+                          "globalId": f"confluence-page:{pid}", "relationship": label.lower(),
+                          "object": {"url": url_, "title": (t if t.lower().startswith(label.lower()) else f"{label}: {t}")[:255]}})
               print(f"Confluence page: {page_url}")
+              if tests_url: print(f"Post-deployment plan: {tests_url}")
+              if notes_url: print(f"Release notes: {notes_url}")
               return page_url
 
           def main():
