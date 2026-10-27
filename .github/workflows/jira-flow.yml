@@ -52,10 +52,16 @@ on:
         default: Approved
       closed-statuses:
         description: >
-          Comma-separated statuses that mean the change request is finished; a new ticket is created for the
-          version after that. Empty = any status in Jira's Done category.
+          Leave empty (default) for exactly one ticket per version, whatever its status. Only if set, tickets in
+          these statuses count as finished and a NEW ticket would be created for the same version.
         type: string
         default: ""
+      delete-duplicates:
+        description: >
+          If two repos create a ticket at the same instant, move everything onto the oldest and delete the newer
+          one (needs "Delete work items" permission; otherwise it is relabelled change-request-duplicate).
+        type: boolean
+        default: true
       include-summary:
         description: change-request only - add a change summary (stats, description, commits/feature PRs, Jira keys) to the Jira comment on open and merge
         type: boolean
@@ -221,6 +227,7 @@ jobs:
           REQUIRE_APPROVAL: ${{ inputs.require-approval }}
           APPROVED_STATUSES: ${{ inputs.approved-statuses }}
           CLOSED_STATUSES: ${{ inputs.closed-statuses }}
+          DELETE_DUPLICATES: ${{ inputs.delete-duplicates }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -328,9 +335,11 @@ jobs:
               return {"type": "doc", "version": 1, "content": out}
 
           def find_open(reconcile=None):
-              finished = ("status not in (" + ", ".join('"' + st.replace('"', '') + '"' for st in CLOSED_STATUSES) + ")"
-                          if CLOSED_STATUSES else "statusCategory != Done")
-              body = {"jql": f'project = "{PROJECT}" AND labels = "{VERSION_LABEL}" AND {finished}',
+              # Default: one ticket per version, whatever its status. closed-statuses (opt-in) re-enables
+              # "finished" tickets, after which a new ticket would be created for the same version.
+              finished = (" AND status not in (" + ", ".join('"' + st.replace('"', '') + '"' for st in CLOSED_STATUSES) + ")"
+                          if CLOSED_STATUSES else "")
+              body = {"jql": f'project = "{PROJECT}" AND labels = "{VERSION_LABEL}"{finished}',
                       "fields": ["summary", "status"], "maxResults": 50}
               if reconcile: body["reconcileIssues"] = [int(i) for i in reconcile]
               return sorted(jira("POST", "/rest/api/3/search/jql", body).get("issues", []), key=lambda i: int(i["id"]))
@@ -356,19 +365,44 @@ jobs:
               return issue
 
           def merge_into(canon, dup):
+              """Move everything from a duplicate onto the canonical (oldest) ticket, then delete the duplicate."""
               ck, dk = canon["key"], dup["key"]
               print(f"Merging duplicate {dk} into {ck}")
               for l in jira("GET", f"/rest/api/3/issue/{dk}/remotelink") or []:
+                  if str(l.get("globalId", "")).startswith("confluence-page:"): continue   # dup's own pages
                   jira("POST", f"/rest/api/3/issue/{ck}/remotelink",
                        {k: l[k] for k in ("globalId", "application", "relationship", "object") if k in l})
-              try:
-                  jira("POST", "/rest/api/3/issueLink", {"type": {"name": "Duplicate"},
-                       "inwardIssue": {"key": dk}, "outwardIssue": {"key": ck}})
-              except JiraError as e: warn(f"Could not link {dk} -> {ck}: {e}")
+              # PR records used by the Confluence pages (keep whichever is newer)
+              for p in (jira("GET", f"/rest/api/3/issue/{dk}/properties") or {}).get("keys", []):
+                  if not p["key"].startswith("crpr."): continue
+                  try:
+                      val = jira("GET", f"/rest/api/3/issue/{dk}/properties/{p['key']}").get("value")
+                      try: mine = jira("GET", f"/rest/api/3/issue/{ck}/properties/{p['key']}").get("value")
+                      except JiraError: mine = None
+                      if val and (not mine or str(val.get("updated", "")) > str(mine.get("updated", ""))):
+                          jira("PUT", f"/rest/api/3/issue/{ck}/properties/{p['key']}", val)
+                  except JiraError as err: warn(f"Could not move {p['key']} from {dk}: {err}")
+              # Linked work items
+              for l in jira("GET", f"/rest/api/3/issue/{dk}?fields=issuelinks")["fields"].get("issuelinks", []):
+                  other = (l.get("outwardIssue") or l.get("inwardIssue") or {}).get("key")
+                  if not other or other == ck or l["type"].get("name") == "Duplicate": continue
+                  body = ({"inwardIssue": {"key": ck}, "outwardIssue": {"key": other}} if "outwardIssue" in l
+                          else {"inwardIssue": {"key": other}, "outwardIssue": {"key": ck}})
+                  body["type"] = {"name": l["type"]["name"]}
+                  try: jira("POST", "/rest/api/3/issueLink", body)
+                  except JiraError as err: warn(f"Could not move link {dk} -> {other}: {err}")
+              if flag("DELETE_DUPLICATES"):
+                  try:
+                      jira("DELETE", f"/rest/api/3/issue/{dk}")
+                      print(f"Deleted duplicate {dk}")
+                      return
+                  except JiraError as err:
+                      warn(f"Could not delete duplicate {dk} ({err}). Grant the pipeline account 'Delete work items' "
+                           "permission to remove duplicates automatically; relabelling it instead.")
               jira("PUT", f"/rest/api/3/issue/{dk}",
                    {"update": {"labels": [{"remove": VERSION_LABEL}, {"add": f"{KIND_LABEL}-duplicate"}]}})
               jira("POST", f"/rest/api/3/issue/{dk}/comment",
-                   {"body": adf([f"Duplicate from a concurrent run; links moved to {ck}. Safe to close."])})
+                   {"body": adf([f"Duplicate of {ck}: everything was moved there. Safe to close or delete."])})
 
           def upsert_link(key):
               if CONSOLIDATION:   # repo only, no PR
