@@ -46,6 +46,17 @@ on:
         description: change-request only - fail unless the ticket is in an approved status
         type: boolean
         default: false
+      link-consolidation:
+        description: >
+          Link the production change request and the staging consolidation ticket for the same version
+          (works from either flow, whichever runs second). The consolidation ticket is kept out of the
+          work-item lists in Confluence and shown as "Staging consolidation" in the release record.
+        type: boolean
+        default: true
+      consolidation-link-type:
+        description: Jira issue link type used between the two tickets
+        type: string
+        default: Relates
       approval-roles:
         description: >
           change-request only - roles for the Approvals table added to the ticket description (comma-separated).
@@ -239,6 +250,8 @@ jobs:
           REQUIRE_APPROVAL: ${{ inputs.require-approval }}
           APPROVED_STATUSES: ${{ inputs.approved-statuses }}
           APPROVAL_ROLES: ${{ inputs.approval-roles }}
+          LINK_CONSOLIDATION: ${{ inputs.link-consolidation }}
+          CONSOLIDATION_LINK_TYPE: ${{ inputs.consolidation-link-type }}
           CLOSED_STATUSES: ${{ inputs.closed-statuses }}
           DELETE_DUPLICATES: ${{ inputs.delete-duplicates }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -397,6 +410,28 @@ jobs:
               desc["content"] = [n for k, n in enumerate(content) if k not in drop]
               jira("PUT", f"/rest/api/3/issue/{key}", {"fields": {"description": desc}})
               print(f"Removed {len(idx) - 1} duplicate approvals table(s) from {key}")
+
+          PARTNER_LINK_TYPE = env("CONSOLIDATION_LINK_TYPE", "Relates")
+          STAGING = {"key": None}   # consolidation ticket for this version (change-request flow), set in main()
+
+          def find_partner():
+              """The other flow's ticket for the same version: consolidation <-> change request."""
+              label = ("cr-" if CONSOLIDATION else "consolidation-") + slug(VERSION)
+              found = jira("POST", "/rest/api/3/search/jql", {
+                  "jql": f'project = "{PROJECT}" AND labels = "{label}"', "fields": ["summary"], "maxResults": 10}).get("issues", [])
+              return sorted(found, key=lambda i: int(i["id"]))[0]["key"] if found else None
+
+          def link_partner(key):
+              if not flag("LINK_CONSOLIDATION"): return None
+              partner = find_partner()
+              if not partner or partner == key: return None
+              have = jira("GET", f"/rest/api/3/issue/{key}?fields=issuelinks")["fields"].get("issuelinks", [])
+              if any((l.get("outwardIssue") or l.get("inwardIssue") or {}).get("key") == partner for l in have):
+                  return partner
+              jira("POST", "/rest/api/3/issueLink", {"type": {"name": PARTNER_LINK_TYPE},
+                   "inwardIssue": {"key": partner}, "outwardIssue": {"key": key}})
+              print(f"Linked {key} to {'change request' if CONSOLIDATION else 'staging consolidation'} {partner}")
+              return partner
 
           def find_open(reconcile=None):
               # Default: one ticket per version, whatever its status. closed-statuses (opt-in) re-enables
@@ -740,6 +775,8 @@ jobs:
                                  ("Version", e(VERSION)), ("Status", f"<strong>{e(status)}</strong>"),
                                  ("Repositories", e(", ".join(r.split("/")[-1] for r in repos)) or "-"),
                                  ("Pull requests", str(len(recs))),
+                                 *([("Staging consolidation", f'<a href="{e(BASE)}/browse/{e(STAGING["key"])}">{e(STAGING["key"])}</a>')]
+                                   if STAGING["key"] else []),
                                  *([("Post-deployment plan", f'<a href="{e(tests_url)}">Open post-deployment plan</a>')] if tests_url else []),
                                  *([("Release notes", f'<a href="{e(notes_url)}">Open release notes</a>')] if notes_url else []),
                                  ("Last updated", e(datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")))):
@@ -1051,6 +1088,9 @@ jobs:
           def publish_confluence(key):
               if not CONF_SPACE: return None
               issue = jira("GET", f"/rest/api/3/issue/{key}?fields=summary,status,issuelinks")
+              if STAGING["key"]:   # the consolidation ticket is not a feature/fix: don't list it as a work item
+                  issue["fields"]["issuelinks"] = [l for l in issue["fields"].get("issuelinks", [])
+                                                   if (l.get("outwardIssue") or l.get("inwardIssue") or {}).get("key") != STAGING["key"]]
               fmt = dict(key=key, summary=issue["fields"]["summary"], version=VERSION)
               title = CONF_TITLE.format(**fmt)[:255]
               stored = get_prop(key, PAGE_PROP) or {}
@@ -1140,6 +1180,10 @@ jobs:
                   try: ensure_approvals(key)
                   except JiraError as err: warn(f"Could not add the approvals table to {key}: {err}")
               upsert_link(key)
+              try:
+                  partner = link_partner(key)
+                  if not CONSOLIDATION: STAGING["key"] = partner
+              except JiraError as err: warn(f"Could not link the consolidation/change request tickets: {err}")
               jira("PUT", f"/rest/api/3/issue/{key}", {"update": {"labels": [{"add": REPO_LABEL}]}})
               commits = load_commits()
               comment(key, commits)
