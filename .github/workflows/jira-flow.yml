@@ -63,7 +63,7 @@ on:
           change-request only - roles for the Approvals table added to the ticket description (comma-separated).
           Added once; approvers fill it in and the pipeline never changes it. Empty = no table.
         type: string
-        default: "Product Manager, Engineering Manager, Team Lead, Deployment Lead, Product Owner"
+        default: "Product Manager, Engineering Manager, Team Lead, Deployment Lead, Product Owner, Head of Product"
       approved-statuses:
         description: Comma-separated status names that count as approved (case-insensitive)
         type: string
@@ -139,15 +139,29 @@ on:
         default: "Post-deployment plan {key}: {summary}"
       confluence-release-notes:
         description: >
-          Create a "Release notes" page for product management: changes grouped from the linked work items
-          (New features / Improvements / Bug fixes / Other) plus feature PRs without a ticket. Its Highlights
-          section is written by product management and never changed by the pipeline.
+          Publish product-manager-friendly release notes ("InsightHQ V5.2.1 - Release Notes"): release date, status,
+          Overview and Known issues (written by PMs on the page, never overwritten), New features / Improvements /
+          Bug fixes from the linked tickets, components and change management (incl. pending approvals).
         type: boolean
         default: true
       confluence-release-notes-title-template:
-        description: 'Title of the release notes page; placeholders {key}, {summary}, {version}'
+        description: 'Title of the release notes page; placeholders {product}, {version}, {key}, {summary}'
         type: string
-        default: "Release notes {version} ({key})"
+        default: "{product} V{version} – Release Notes"
+      release-notes-product:
+        description: Product name for the release notes title (default - the Jira project name)
+        type: string
+        default: ""
+      release-note-field:
+        description: >
+          Jira field holding a ticket's customer-facing sentence. If missing/empty, a line starting
+          "Release note:" in the ticket description is used; otherwise just the ticket title.
+        type: string
+        default: "Release note"
+      release-notes-skip-label:
+        description: Tickets with this label are left out of the release notes (e.g. internal work)
+        type: string
+        default: no-release-notes
       confluence-release-notes-parent-id:
         description: Optional page ID to put release notes under (default - under the release record)
         type: string
@@ -304,6 +318,9 @@ jobs:
           CONFLUENCE_RELEASE_NOTES: ${{ inputs.confluence-release-notes }}
           CONFLUENCE_RELEASE_NOTES_TITLE_TEMPLATE: ${{ inputs.confluence-release-notes-title-template }}
           CONFLUENCE_RELEASE_NOTES_PARENT_ID: ${{ inputs.confluence-release-notes-parent-id }}
+          RELEASE_NOTES_PRODUCT: ${{ inputs.release-notes-product }}
+          RELEASE_NOTE_FIELD: ${{ inputs.release-note-field }}
+          RELEASE_NOTES_SKIP_LABEL: ${{ inputs.release-notes-skip-label }}
           CONFLUENCE_STAGING_PAGE: ${{ inputs.confluence-staging-page }}
           CONFLUENCE_STAGING_TITLE_TEMPLATE: ${{ inputs.confluence-staging-title-template }}
         run: |
@@ -691,14 +708,16 @@ jobs:
           CONF_TESTS_TITLE = env("CONFLUENCE_TEST_PLAN_TITLE_TEMPLATE", "Post-deployment plan {key}: {summary}")
           TESTS_SLOT = "<!--smoke-tests-->"
           CONF_NOTES = flag("CONFLUENCE_RELEASE_NOTES")
-          CONF_NOTES_TITLE = env("CONFLUENCE_RELEASE_NOTES_TITLE_TEMPLATE", "Release notes {version} ({key})")
+          CONF_NOTES_TITLE = env("CONFLUENCE_RELEASE_NOTES_TITLE_TEMPLATE", "{product} V{version} – Release Notes")
           CONF_NOTES_PARENT = env("CONFLUENCE_RELEASE_NOTES_PARENT_ID")
-          HIGHLIGHTS_SLOT = "<!--highlights-->"
-          HIGHLIGHTS_TEMPLATE = ('<p><em>Product management: write a short, customer-friendly summary of this release here '
-                                 '(what\'s new and why it matters). This section is kept as-is by the pipeline.</em></p>'
-                                 '<ul><li><p></p></li></ul>')
+          OVERVIEW_SLOT = "<!--overview-->"
+          KNOWN_SLOT = "<!--known-issues-->"
+          KNOWN_TEMPLATE = "<ul><li><p>None known.</p></li></ul>"
+          RELEASE_NOTE_FIELD = env("RELEASE_NOTE_FIELD", "Release note")
+          SKIP_LABEL = env("RELEASE_NOTES_SKIP_LABEL", "no-release-notes")
+          PRODUCT_NAME = env("RELEASE_NOTES_PRODUCT")
           NOTE_GROUPS = (("New features", {"story", "epic", "feature", "new feature"}),
-                         ("Improvements", {"improvement", "enhancement", "task", "sub-task", "subtask", "change"}),
+                         ("Improvements", set()),                       # everything that isn't a feature or a bug
                          ("Bug fixes", {"bug", "defect", "incident"}))
           PR_PROP_PREFIX = "crpr."
           MANUAL_SLOT = "<!--manual-release-items-->"
@@ -970,76 +989,146 @@ jobs:
               out.append(TESTS_SLOT)
               return "".join(out)
 
-          def extract_highlights(body):
-              m = _h2("Highlights").search(body)
-              if m:
-                  p = _h2("Changes in this release").search(body, m.end())
-                  return body[m.end():p.start()] if p else None
-              if "Generating release notes" in body: return HIGHLIGHTS_TEMPLATE
+          _CACHE = {}
+
+          def adf_text(node):
+              """Plain text from Atlassian Document Format (or a plain string)."""
+              if node is None: return ""
+              if isinstance(node, str): return node
+              if isinstance(node, list): return "".join(adf_text(n) for n in node)
+              t = node.get("type")
+              if t == "text": return node.get("text", "")
+              if t == "hardBreak": return "\n"
+              inner = adf_text(node.get("content", []))
+              return inner + ("\n" if t in ("paragraph", "heading", "listItem", "tableRow") else "")
+
+          def product_name():
+              if PRODUCT_NAME: return PRODUCT_NAME
+              if "product" not in _CACHE:
+                  try: _CACHE["product"] = jira("GET", f"/rest/api/3/project/{PROJECT}").get("name") or PROJECT
+                  except JiraError: _CACHE["product"] = PROJECT
+              return _CACHE["product"]
+
+          def release_note_field_id():
+              if "rnf" not in _CACHE:
+                  _CACHE["rnf"] = None
+                  if RELEASE_NOTE_FIELD:
+                      try:
+                          for fld in jira("GET", "/rest/api/3/field") or []:
+                              if (fld.get("name") or "").strip().lower() == RELEASE_NOTE_FIELD.lower():
+                                  _CACHE["rnf"] = fld["id"]; break
+                      except JiraError: pass
+              return _CACHE["rnf"]
+
+          def release_date():
+              try:
+                  for v in jira("GET", f"/rest/api/3/project/{PROJECT}/versions") or []:
+                      if v.get("name", "").lstrip("vV").endswith(VERSION) and v.get("releaseDate"):
+                          return datetime.strptime(v["releaseDate"], "%Y-%m-%d").strftime("%-d %B %Y")
+              except (JiraError, ValueError): pass
+              return "TBC"
+
+          def note_items(key, exclude):
+              """Linked tickets with the text product managers want: Release note field > 'Release note:' line > none."""
+              fid = release_note_field_id()
+              fields = ["summary", "status", "issuetype", "description", "labels"] + ([fid] if fid else [])
+              res = jira("POST", "/rest/api/3/search/jql", {"jql": f'issue in linkedIssues("{key}")',
+                                                            "fields": fields, "maxResults": 100})
+              items = []
+              for it in res.get("issues", []):
+                  f = it.get("fields", {})
+                  labels = {l.lower() for l in f.get("labels") or []}
+                  if it["key"] in exclude or labels & {"change-request", "consolidation", SKIP_LABEL.lower()}: continue
+                  note = adf_text(f.get(fid)).strip() if fid else ""
+                  if not note:
+                      m = re.search(r"(?im)^\s*release note\s*:\s*(.+)$", adf_text(f.get("description")))
+                      note = m.group(1).strip() if m else ""
+                  if note.strip() in ("-", "n/a", "none"): continue
+                  itype = ((f.get("issuetype") or {}).get("name") or "").lower()
+                  group = next((g for g, types in NOTE_GROUPS if itype in types), "Improvements")
+                  items.append({"key": it["key"], "title": f.get("summary", ""), "note": note,
+                                "status": (f.get("status") or {}).get("name", ""), "group": group})
+              return sorted(items, key=lambda x: x["key"])
+
+          def approval_state(key):
+              """(pending_roles, rejected_roles) from the Approvals table in the ticket description."""
+              desc = jira("GET", f"/rest/api/3/issue/{key}?fields=description")["fields"].get("description") or {}
+              content, pending, rejected = desc.get("content", []), [], []
+              for i, n in enumerate(content):
+                  if not _is_approvals_heading(n): continue
+                  table = next((x for x in content[i + 1:] if x.get("type") == "table"), None)
+                  for row in (table or {}).get("content", [])[1:]:
+                      cells = [adf_text(c).strip() for c in row.get("content", [])]
+                      if len(cells) < 3: continue
+                      decision = cells[2].lower()
+                      if decision.startswith("approved"): continue
+                      (rejected if decision.startswith("reject") else pending).append(cells[0])
+                  break
+              return pending, rejected
+
+          def _join(names): return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+          def notes_defaults(items, recs):
+              counts = [(len([i for i in items if i["group"] == g]), w) for g, w in
+                        (("New features", "new feature"), ("Improvements", "improvement"), ("Bug fixes", "bug fix"))]
+              parts = [f"{n} {w}{'es' if n != 1 and w.endswith('fix') else ('s' if n != 1 else '')}" for n, w in counts if n]
+              comps = len({r["repo"] for r in recs})
+              what = _join(parts) if parts else "changes"
+              draft = (f"V{e(VERSION)} includes {e(what)}" + (f" across {comps} component{'s' if comps != 1 else ''}" if comps else "") + ". "
+                       "<em>(Product manager: replace this with a 2–3 sentence summary of what this release means for users.)</em>")
+              return [f"<p>{draft}</p>", KNOWN_TEMPLATE]
+
+          def extract_notes(body, defaults):
+              """[overview, known issues] as people left them, or defaults for a new/old-style page; None = refuse."""
+              ov = _h2("Overview").search(body)
+              kn = _h2("Known issues / notes").search(body)
+              if ov and kn:
+                  nxt = [m.start() for h in ("New features", "Improvements", "Bug fixes", "Components updated")
+                         for m in [_h2(h).search(body, ov.end())] if m]
+                  if nxt and min(nxt) < kn.start(): return [body[ov.end():min(nxt)], body[kn.end():]]
+                  return None
+              if "Generating release notes" in body: return defaults
+              if _h2("Changes in this release").search(body):            # page from the previous version
+                  hl = _h2("Highlights").search(body); ch = _h2("Changes in this release").search(body)
+                  old = body[hl.end():ch.start()] if hl and ch and hl.end() < ch.start() else ""
+                  if re.sub(r"<[^>]+>|&nbsp;|\s", "", old) and "Product management: write" not in old:
+                      return [old, defaults[1]]                           # keep what PM wrote in Highlights
+                  return defaults
               return None
 
-          def render_notes(key, issue, recs, record_url):
+          def render_notes(key, issue, recs, record_url, items, pending, rejected):
               f = issue["fields"]
               url = f"{BASE}/browse/{key}"
-              merged = sum(1 for r in recs if r["state"] == "merged")
+              status = f["status"]["name"]
+              shipped = status.lower() in ("released to production", "closed", "done", "released")
               out = ['<ac:structured-macro ac:name="info"><ac:rich-text-body><p>'
-                     f'Release notes generated from <a href="{e(url)}" data-card-appearance="inline">{e(url)}</a>. '
-                     '<strong>Highlights</strong> is written by product management and never changed by the pipeline; '
-                     'the rest is regenerated from the linked work items.</p></ac:rich-text-body></ac:structured-macro>']
-              out.append("<h2>Release</h2><table><tbody>")
-              rows = [("Version", f"<strong>{e(VERSION)}</strong>"), ("Change request", f'<a href="{e(url)}">{e(key)}</a>'),
-                      ("Status", e(f["status"]["name"])),
-                      ("Deployed", f"{merged} of {len(recs)} pull requests merged" if recs else "-"),
-                      ("Components", e(", ".join(sorted({r["repo"].split("/")[-1] for r in recs}))) or "-")]
-              if record_url: rows.append(("Release record", f'<a href="{e(record_url)}">Open release record</a>'))
-              rows.append(("Last updated", e(datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"))))
-              out += [f"<tr><th>{e(a)}</th><td>{b}</td></tr>" for a, b in rows]
-              out.append("</tbody></table>")
-
-              out.append("<h2>Highlights</h2>" + HIGHLIGHTS_SLOT)
-
-              out.append("<h2>Changes in this release</h2>")
-              groups = {name: [] for name, _ in NOTE_GROUPS}; groups["Other"] = []
-              linked_keys = set()
-              for l in f.get("issuelinks", []):
-                  other = l.get("outwardIssue") or l.get("inwardIssue")
-                  of = other.get("fields", {})
-                  linked_keys.add(other["key"])
-                  itype = ((of.get("issuetype") or {}).get("name") or "").lower()
-                  target = next((name for name, types in NOTE_GROUPS if itype in types), "Other")
-                  groups[target].append(other)
-              any_items = False
-              for name in [g for g, _ in NOTE_GROUPS] + ["Other"]:
-                  if not groups[name]: continue
-                  any_items = True
-                  out.append(f"<h3>{e(name)}</h3><ul>")
-                  for o in sorted(groups[name], key=lambda x: x["key"]):
-                      of = o.get("fields", {})
-                      out.append(f'<li><a href="{e(BASE)}/browse/{e(o["key"])}">{e(o["key"])}</a> {e(of.get("summary"))}'
-                                 f' <em>({e((of.get("status") or {}).get("name"))})</em></li>')
+                     '<strong>Overview</strong> and <strong>Known issues / notes</strong> are yours to edit. '
+                     'Everything else updates automatically from Jira. To change a bullet, edit the ticket\'s '
+                     f'<strong>{e(RELEASE_NOTE_FIELD or "Release note")}</strong> (or a "Release note:" line in its description); '
+                     f'label a ticket <code>{e(SKIP_LABEL)}</code> to leave it out.</p></ac:rich-text-body></ac:structured-macro>']
+              out.append(f"<p><strong>Release date:</strong> {e(release_date())}<br/>"
+                         f"<strong>Status:</strong> {'Released' if shipped else 'In progress'}</p>")
+              out.append("<h2>Overview</h2>" + OVERVIEW_SLOT)
+              for group, _ in NOTE_GROUPS:
+                  rows = [i for i in items if i["group"] == group]
+                  if not rows: continue
+                  out.append(f"<h2>{e(group)}</h2><ul>")
+                  for i in rows:
+                      text = f"<strong>{e(i['title'])}</strong>" + (f" – {e(i['note'])}" if i["note"] else "")
+                      out.append(f'<li>{text} <a href="{e(BASE)}/browse/{e(i["key"])}">{e(i["key"])}</a> '
+                                 f'<em>({e(i["status"])})</em></li>')
                   out.append("</ul>")
-              # Feature PRs that don't mention any linked ticket
-              untracked, seen = [], set()
-              for r in recs:
-                  for it in r.get("changes") or []:
-                      if not it["ref"].startswith("#"): continue           # feature PRs only, not raw commits
-                      if any(k in it["text"] for k in linked_keys) or it["text"] in seen: continue
-                      seen.add(it["text"]); untracked.append((r["repo"].split("/")[-1], it))
-              if untracked:
-                  any_items = True
-                  out.append("<h3>Other changes (no linked ticket)</h3><ul>")
-                  for repo, it in untracked:
-                      out.append(f'<li>{e(it["text"])} <em>({e(repo)}, <a href="{e(it["url"])}">{e(it["ref"])}</a>)</em></li>')
-                  out.append("</ul>")
-              if not any_items: out.append("<p>No changes recorded yet.</p>")
-
-              out.append("<h2>Components</h2>")
-              if recs:
-                  out.append("<ul>" + "".join(
-                      f'<li>{e(r["repo"].split("/")[-1])}: <a href="{e(r["url"])}">#{e(r["number"])}</a> ({e(r["state"])})</li>'
-                      for r in recs) + "</ul>")
-              else:
-                  out.append("<p>-</p>")
+              if not items: out.append("<h2>Improvements</h2><p>No changes recorded yet.</p>")
+              comps = sorted({r["repo"].split("/")[-1] for r in recs})
+              out.append("<h2>Components updated</h2>" + ("<ul>" + "".join(f"<li>{e(c)}</li>" for c in comps) + "</ul>"
+                                                         if comps else "<p>None yet.</p>"))
+              cm = [f'Change request: <a href="{e(url)}">{e(key)}: {e(f["summary"])}</a> <em>({e(status)})</em>']
+              if rejected: cm.append(f"Rejected by the {e(_join(rejected))}.")
+              if pending: cm.append(f"Approvals from the {e(_join(pending))} are still pending.")
+              elif not rejected and APPROVAL_ROLES: cm.append("All approvals received.")
+              if record_url: cm.append(f'Release record: <a href="{e(record_url)}">open</a>')
+              out.append("<h2>Change management</h2><ul>" + "".join(f"<li>{c}</li>" for c in cm) + "</ul>")
+              out.append("<h2>Known issues / notes</h2>" + KNOWN_SLOT)
               return "".join(out)
 
           def write_page(page, title, generated, slot, extract, label):
@@ -1052,7 +1141,11 @@ jobs:
                       warn(f"{label} not updated: a heading that marks the hand-edited section was renamed or removed. "
                            "Restore the heading name (or the previous page version).")
                       return False
-                  body = generated.replace(slot, keep) if slot else generated
+                  if isinstance(slot, (list, tuple)):
+                      body = generated
+                      for sl, kp in zip(slot, keep): body = body.replace(sl, kp)
+                  else:
+                      body = generated.replace(slot, keep) if slot else generated
                   try:
                       jira("PUT", f"/wiki/api/v2/pages/{page['id']}", {
                           "id": page["id"], "status": "current", "title": title,
@@ -1157,7 +1250,7 @@ jobs:
               if STAGING["key"]:   # the consolidation ticket is not a feature/fix: don't list it as a work item
                   issue["fields"]["issuelinks"] = [l for l in issue["fields"].get("issuelinks", [])
                                                    if (l.get("outwardIssue") or l.get("inwardIssue") or {}).get("key") != STAGING["key"]]
-              fmt = dict(key=key, summary=issue["fields"]["summary"], version=VERSION)
+              fmt = dict(key=key, summary=issue["fields"]["summary"], version=VERSION, product=product_name())
               title = CONF_TITLE.format(**fmt)[:255]
               stored = get_prop(key, PAGE_PROP) or {}
               space_id = stored.get("spaceId") or conf_space_id()
@@ -1198,10 +1291,14 @@ jobs:
                           if write_page(tests, tests_title, tgen, TESTS_SLOT, lambda b: extract_tests(b, recs), "Post-deployment plan"):
                               stored["testsHash"] = th
                   if notes:
-                      ngen = render_notes(key, issue, recs, page_url)
-                      nh = digest_of(ngen)
+                      items = note_items(key, {STAGING["key"]} if STAGING["key"] else set())
+                      pending, rejected = approval_state(key)
+                      ngen = render_notes(key, issue, recs, page_url, items, pending, rejected)
+                      nh = digest_of(ngen + notes_title)
                       if stored.get("notesHash") != nh:
-                          if write_page(notes, notes_title, ngen, HIGHLIGHTS_SLOT, extract_highlights, "Release notes"):
+                          defaults = notes_defaults(items, recs)
+                          if write_page(notes, notes_title, ngen, (OVERVIEW_SLOT, KNOWN_SLOT),
+                                        lambda b: extract_notes(b, defaults), "Release notes"):
                               stored["notesHash"] = nh
                   stored.update(pageId=page["id"], spaceId=space_id, testsId=tests and tests["id"], notesId=notes and notes["id"],
                                 folderId=folder_id, folderKind=folder_kind)
@@ -1317,7 +1414,7 @@ jobs:
               if CR_PARTNER["key"]:   # the production change request is not a work item
                   issue["fields"]["issuelinks"] = [l for l in issue["fields"].get("issuelinks", [])
                                                    if (l.get("outwardIssue") or l.get("inwardIssue") or {}).get("key") != CR_PARTNER["key"]]
-              fmt = dict(key=key, summary=issue["fields"]["summary"], version=VERSION)
+              fmt = dict(key=key, summary=issue["fields"]["summary"], version=VERSION, product=product_name())
               title = STG_TITLE.format(**fmt)[:255]
               stored = get_prop(key, PAGE_PROP) or {}
               space_id = stored.get("spaceId") or conf_space_id()
